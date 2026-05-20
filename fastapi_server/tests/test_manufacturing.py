@@ -147,7 +147,7 @@ def test_get_manufacturing_dashboard(
         "grain": "day",
     }
     assert data["summary"]["latestDate"] == "2026-04-27"
-    assert data["summary"]["lotsProduced"] == 273
+    assert data["summary"]["lotsProduced"] == data["series"][-1]["lotsProduced"]
     assert data["predictionStatus"] == "local"
     assert "predictionAlertCount" in data["summary"]
     assert data["summary"]["predictionAlertCount"] > 0

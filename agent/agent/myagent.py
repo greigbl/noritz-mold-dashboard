@@ -11,8 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import os
+from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from enum import Enum
+from typing import TYPE_CHECKING, Any, AsyncIterator, Optional, cast
 
 import litellm
 from datarobot_genai.core.agents import InvokeReturn, make_system_prompt
@@ -36,6 +39,39 @@ if TYPE_CHECKING:
 litellm.modify_params = True
 
 _PLACEHOLDER_MODELS = frozenset({"unknown"})
+
+
+def _json_safe_mcp_kwargs(value: Any) -> Any:
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {k: _json_safe_mcp_kwargs(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe_mcp_kwargs(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_json_safe_mcp_kwargs(v) for v in value)
+    return value
+
+
+def _agent_forwarded_headers(
+    forwarded_headers: dict[str, str], mcp_config: MCPConfig
+) -> dict[str, str]:
+    server_config = mcp_config.server_config or {}
+    server_headers = server_config.get("headers") or {}
+    headers = {**server_headers, **forwarded_headers}
+    if tavily_api_key := os.environ.get("TAVILY_API_KEY"):
+        headers["x-datarobot-tavily-api-key"] = tavily_api_key
+    return headers
+
+
+@asynccontextmanager
+async def _mcp_tools_context(mcp_config: MCPConfig) -> AsyncIterator[list[BaseTool]]:
+    server_config = mcp_config.server_config
+    if server_config and "url" not in server_config:
+        yield []
+        return
+    async with mcp_tools_context(mcp_config) as tools:
+        yield tools
 
 
 prompt_template = ChatPromptTemplate.from_messages(
@@ -126,13 +162,22 @@ MyAgent = datarobot_agent_class_from_langgraph(graph_factory, prompt_template)
 async def custompy_adaptor(
     completion_create_params: CompletionCreateParams,
 ) -> InvokeReturn | tuple[str, Optional["MultiTurnSample"], UsageMetrics]:
-    forwarded_headers = completion_create_params.get("forwarded_headers", {})
-    authorization_context = completion_create_params.get("authorization_context", {})
-    mcp_config = MCPConfig(
-        forwarded_headers=forwarded_headers,
-        authorization_context=authorization_context,
+    forwarded_headers = cast(
+        dict[str, str], completion_create_params.get("forwarded_headers", {})
     )
-    mcp_tools_factory = lambda: mcp_tools_context(mcp_config)  # noqa: E731
+    authorization_context = cast(
+        dict[str, Any], completion_create_params.get("authorization_context", {})
+    )
+    mcp_config = MCPConfig(
+        **_json_safe_mcp_kwargs(
+            {
+                "forwarded_headers": forwarded_headers,
+                "authorization_context": authorization_context,
+            }
+        )
+    )
+    agent_forwarded_headers = _agent_forwarded_headers(forwarded_headers, mcp_config)
+    mcp_tools_factory = lambda: _mcp_tools_context(mcp_config)  # noqa: E731
     model_name = completion_create_params.get("model")
     agent = MyAgent(
         llm=get_llm(
@@ -140,7 +185,7 @@ async def custompy_adaptor(
         ),
         verbose=completion_create_params.get("verbose", True),  # type: ignore[arg-type]
         timeout=completion_create_params.get("timeout", 90),  # type: ignore[arg-type]
-        forwarded_headers=forwarded_headers,  # type: ignore[arg-type]
+        forwarded_headers=agent_forwarded_headers,
     )
     return await agent_chat_completion_wrapper(
         agent, completion_create_params, mcp_tools_factory

@@ -1,5 +1,6 @@
 # Agent Development Instructions
 
+
 ## Dependencies Installation
 
 The following command should be run after agent code modification:
@@ -22,44 +23,85 @@ Agent must implement the following components:
 
 ### 1. Class Definition
 
-```python
-from datarobot_genai.nat.agent import NatAgent
+`MyAgent` is generated using `datarobot_agent_class_from_langgraph` with a graph factory and prompt template:
 
-class MyAgent(NatAgent):
-    def __init__(self, *args, workflow_path=Path(__file__).parent / "workflow.yaml", **kwargs):
-        super().__init__(*args, workflow_path=workflow_path, **kwargs)
+```python
+from datarobot_genai.langgraph.agent import datarobot_agent_class_from_langgraph
+
+MyAgent = datarobot_agent_class_from_langgraph(graph_factory, prompt_template)
 ```
 
 **Important**: `MyAgent` class should NOT be renamed!
 
-### 2. Agent Workflow
+### 2. Prompt Template
 
-All agent logic is defined declaratively in `workflow.yaml`. Functions, LLMs, tools, and orchestration are all configured in YAML:
+Define a `ChatPromptTemplate` that structures user input:
 
-```yaml
-functions:
-  planner:
-    _type: chat_completion
-    llm_name: datarobot_llm
-    system_prompt: |
-      You are a content planner...
-
-workflow:
-  _type: per_user_tool_calling_agent
-  llm_name: datarobot_llm
-  tool_names:
-    - planner
-    - writer
-    - mcp_tools
-  system_prompt: |
-    You are a blog content orchestrator...
+```python
+prompt_template = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful assistant. Chat history: {chat_history}"),
+    ("user", "The topic is {topic}."),
+])
 ```
 
-### 3. Custom Tools
+### 3. Graph Factory
 
-Register custom Python tools using `nat_tool()` from `datarobot_genai.nat.tool` in `register.py`, then reference them by name in `workflow.yaml`.
+Define a function that receives an LLM, tools, and verbosity flag, and returns a `StateGraph`:
 
-For detailed NAT documentation, see [docs/agent/frameworks/nat.md](../docs/agent/frameworks/nat.md).
+```python
+def graph_factory(llm, tools, verbose=False):
+    planner = create_agent(llm, tools=tools,
+        system_prompt=make_system_prompt("You are a content planner. ..."),
+        name="planner_agent", debug=verbose)
+    writer = create_agent(llm, tools=tools,
+        system_prompt=make_system_prompt("You are a content writer. ..."),
+        name="writer_agent", debug=verbose)
+
+    def planner_to_writer_relay(state: MessagesState) -> MessagesState:
+        last = state["messages"][-1]
+        if isinstance(last, AIMessage):
+            return {"messages": [HumanMessage(content=last.content)]}
+        return {"messages": []}
+
+    workflow = StateGraph(MessagesState)
+    workflow.add_node("planner_node", planner)
+    workflow.add_node("planner_to_writer_relay", planner_to_writer_relay)
+    workflow.add_node("writer_node", writer)
+    workflow.add_edge(START, "planner_node")
+    workflow.add_edge("planner_node", "planner_to_writer_relay")
+    workflow.add_edge("planner_to_writer_relay", "writer_node")
+    workflow.add_edge("writer_node", END)
+    return workflow
+```
+
+**IMPORTANT**: Use `create_agent` from `langchain.agents` to create agent nodes. Use `make_system_prompt()` from `datarobot_genai.core.agents` for consistent prompt formatting.
+
+### 4. LLM Resolution
+
+The LLM is resolved via `get_llm()` from `datarobot_genai.langgraph.llm` in `custompy_adaptor`:
+
+```python
+from datarobot_genai.langgraph.llm import get_llm
+
+agent = MyAgent(
+    llm=get_llm(model_name=model_name),
+    ...
+)
+```
+
+**CRITICAL**: Do NOT instantiate LLMs directly. Always use `get_llm()` which handles DataRobot LLM Gateway integration, deployed models, and external LLM providers. To add primary/fallback provider support, use `get_router_llm()` instead — see [LLM provider fallback](../docs/agent/llm-fallback.md).
+
+### 5. Agent tools
+
+**IMPORTANT**: Add required tools in the `agent/agent` directory. Do not add/modify any files outside of this directory. If some of the tools require adding new packages, they should be added to the pyproject.toml and properly installed using command
+
+```shell
+dr task run agent:install
+```
+
+**IMPORTANT**: Tools must be imported and passed to agent nodes inside `graph_factory`.
+
+For detailed LangGraph documentation, see [docs/agent/frameworks/langgraph.md](../docs/agent/frameworks/langgraph.md).
 
 ## Agent Testing
 
@@ -81,6 +123,10 @@ Run the following shell command to validate the agent after deployment. If the r
 ```shell
 task agent:cli -- execute-deployment --user_prompt "Agent specific prompt to validate that it's working" --deployment_id <deployment_id>
 ```
+
+## Setting up custom metric and report values
+
+Refer to [Custom metrics](../docs/agent/custom-metrics.md) page for how to set up and report values to custom metrics.
 
 ## Migrations
 

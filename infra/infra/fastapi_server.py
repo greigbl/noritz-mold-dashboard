@@ -33,9 +33,58 @@ from .agent import agent_app_runtime_parameters
 
 
 SESSION_SECRET_KEY: Final[str] = "SESSION_SECRET_KEY"
+MANUFACTURING_PREDICTION_DEPLOYMENT_ID: Final[str] = (
+    "MANUFACTURING_PREDICTION_DEPLOYMENT_ID"
+)
+DATAROBOT_ENDPOINT: Final[str] = "DATAROBOT_ENDPOINT"
+DATAROBOT_API_TOKEN: Final[str] = "DATAROBOT_API_TOKEN"
+DATAROBOT_API_KEY: Final[str] = "DATAROBOT_API_KEY"
 session_secret_key = os.environ.get(SESSION_SECRET_KEY)
 
 required_key_scope_level: str = "admin"
+
+
+def get_manufacturing_app_runtime_parameters() -> list[
+    pulumi_datarobot.ApplicationSourceRuntimeParameterValueArgs
+]:
+    runtime_parameters: list[
+        pulumi_datarobot.ApplicationSourceRuntimeParameterValueArgs
+    ] = []
+
+    if deployment_id := os.getenv(MANUFACTURING_PREDICTION_DEPLOYMENT_ID):
+        runtime_parameters.append(
+            pulumi_datarobot.ApplicationSourceRuntimeParameterValueArgs(
+                key=MANUFACTURING_PREDICTION_DEPLOYMENT_ID,
+                type="string",
+                value=deployment_id,
+            )
+        )
+
+    if endpoint := os.getenv(DATAROBOT_ENDPOINT):
+        runtime_parameters.append(
+            pulumi_datarobot.ApplicationSourceRuntimeParameterValueArgs(
+                key=DATAROBOT_ENDPOINT,
+                type="string",
+                value=endpoint,
+            )
+        )
+
+    api_token = os.getenv(DATAROBOT_API_TOKEN) or os.getenv(DATAROBOT_API_KEY)
+    if api_token:
+        manufacturing_prediction_credential = pulumi_datarobot.ApiTokenCredential(
+            f"Manufacturing Prediction API Token [{PROJECT_NAME}]",
+            args=pulumi_datarobot.ApiTokenCredentialArgs(api_token=api_token),
+        )
+        runtime_parameters.append(
+            pulumi_datarobot.ApplicationSourceRuntimeParameterValueArgs(
+                key=DATAROBOT_API_TOKEN,
+                type="credential",
+                value=manufacturing_prediction_credential.id,
+            )
+        )
+
+    return runtime_parameters
+
 
 EXCLUDE_PATTERNS = [
     re.compile(pattern)
@@ -217,6 +266,7 @@ fastapi_server_app_runtime_parameters: list[
 ] = (
     agent_app_runtime_parameters
     + llm_app_runtime_parameters
+    + get_manufacturing_app_runtime_parameters()
     + [
         parameter
         for parameter_group in [

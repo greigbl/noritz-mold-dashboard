@@ -1,19 +1,28 @@
 import { useLayoutEffect } from 'react';
-import { Outlet, useNavigate, useParams, useMatch } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate, useParams, useMatch } from 'react-router-dom';
 import { ChatSidebar } from '@/components/block/chat/chat-sidebar';
 import { useChatList } from '@/components/block/chat/hooks/use-chat-list';
 import { MainLayoutProvider } from '@/components/block/chat/main-layout-context';
+import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
+import { PATHS } from '@/constants/path';
+import { ChartNoAxesCombined } from 'lucide-react';
 
 export function MainLayout() {
   const { chatId = '' } = useParams<{ chatId?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const setChatIdHandler = (id: string) => {
-    navigate(`/chat/${id}`);
+    navigate({
+      pathname: `/chat/${id}`,
+      search: location.pathname === PATHS.CHAT_EMPTY ? location.search : '',
+    });
   };
 
   const isChatEmptyPage = useMatch('/chat');
   const isChatSelectedPage = useMatch('/chat/:chatId');
+  const isDashboardPage = useMatch(PATHS.DASHBOARD);
+  const isDashboardAlertPage = useMatch(PATHS.DASHBOARD_ALERT);
   const isChat = isChatEmptyPage || isChatSelectedPage;
 
   const {
@@ -55,6 +64,16 @@ export function MainLayout() {
         onChatSelect={setChatIdHandler}
         onChatDelete={deleteChatHandler}
         isDeletingChat={isDeletingChat}
+        topMenuitem={
+          <SidebarMenuItem key="dashboard">
+            <SidebarMenuButton asChild isActive={!!isDashboardPage || !!isDashboardAlertPage}>
+              <Link to={PATHS.DASHBOARD}>
+                <ChartNoAxesCombined />
+                <span>Dashboard</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        }
       />
       <MainLayoutProvider
         value={{

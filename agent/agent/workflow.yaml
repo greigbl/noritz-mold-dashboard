@@ -1,5 +1,5 @@
 ---
-# Copyright 2025 DataRobot, Inc.
+# Copyright 2026 DataRobot, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,210 +15,68 @@
 general:
   front_end:
     _type: dragent_fastapi
+    # Step adaptor is not necessary for custom agents
+    step_adaptor:
+      mode: 'off'
     # If you don't want your agent to expose A2A endpoints, remove the following block.
     a2a:
       server:
-        name: Manufacturing Quality Agent
-        description: 製造条件から不良品リスクを判定し、原因分析と現場向け対策案を返す品質管理エージェント。
+        name: Blog Content Writer
+        description: An AI content writing agent that researches and writes well-structured blog posts. Provide a topic and
+          it will generate a concise, publication-ready article in markdown format.
       skills:  # Optional: advertise specific skills in the agent card
-        - id: quality_prediction
-          name: 品質判定
-          description: 製造条件を基に不良品リスクを予測し、良品・注意・高リスクを判定する。
+        - id: write_blog
+          name: Write Blog Post
+          description: Researches and writes a blog post on the given topic.
           tags: []
-          examples: [コーティング成分A=52.3、温度=325、圧力=1.2、湿度=45で品質判定して, この製造条件が高リスクかどうか見て]
-        - id: cause_analysis
-          name: 原因分析
-          description: 高リスクまたは注意の条件について、主要因と関連する対策情報を整理する。
-          tags: []
-          examples: [この高リスク判定の原因を分析して, 不良の主要因と参考になる対処法を教えて]
-        - id: countermeasure_advice
-          name: 対策提案
-          description: 分析結果を基に、現場で実行できる優先度付きの対策案を提示する。
-          tags: []
-          examples: [現場で今すぐ取るべき対策を提案して, 恒久対策まで含めて改善案をまとめて]
-functions:
-  # ---------------------------------------------------------------------------
-  # Search Agent: Tavily + Google Drive検索エージェント
-  # Tools: tavily_search / tavily_extract / gdrive_find_contents / gdrive_read_content
-  # ---------------------------------------------------------------------------
-  search_agent:
-    _type: per_user_tool_calling_agent
-    llm_name: datarobot_llm
-    description: 品質判定の主要因について、Tavily検索とGoogle Drive MCPを使って社内資料と外部情報を同列に集め、最終回答向けの根拠パックを作成する検索専用エージェント。
-    tool_names: [mcp_tools]
-    system_prompt: |
-      あなたは品質原因調査の検索担当（Search Agent）です。
-      役割は入力された品質判定結果に含まれる主要因・入力条件・優先確認点をもとに、
-      Google DriveとTavilyから考察材料を集めることです。
-      あなたは検索専任です。対策提案や最終判断は最上位ワークフローに任せます。
-      使用してよいMCPツール:
-      - gdrive_find_contents
-      - gdrive_read_content
-      - tavily_search
-      - tavily_extract
-      禁止事項:
-      - predict_realtimeを呼び出してはいけません。
-      - ユーザー入力の製造条件を変更してはいけません。
-      - 検索で確認できない内容を、確認済み事実のように書いてはいけません。
-      - Google DriveとTavilyのどちらかを常に優先してはいけません。両方を同列の情報源として扱ってください。
-      検索方針:
-      1. 品質判定結果の「主な要因」を最大3件抽出し、各要因について検索クエリを作る。
-      2. Google Driveでは社内手順、過去トラブル、品質基準、工程条件、対策履歴に関係する資料を探す。
-      3. Tavilyでは一般的な製造・品質・工程管理上の知見、類似不良、管理方法を探す。
-      4. Google DriveとTavilyの内容が一致する点、矛盾する点、不足している点を分けて整理する。
-      5. 取得できない情報は「該当資料なし」「外部情報なし」「取得失敗」と明記する。
-      出力ルール:
-      - 必ず以下の見出しをそのまま使ってください。
-      - 全体は1100文字以内に収めてください。
-      - 出典名、URL、ファイル名、文書タイトルが取れた場合は必ず書いてください。
-      - Tavilyなどの外部検索でURLが取得できた場合は、外部検索URLに必ずURLをそのまま書いてください。
-      - 外部検索を実行したがURLが取得できない場合は、外部検索URLに「URL取得不可」と書いてください。
-      - 長い引用は避け、要点を短く要約してください。
-      【SEARCH_RESULT】
-      検索対象:
-      - <入力から抽出した主要因>
-      検索クエリ:
-      - Google Drive: <実行した検索語>
-      - Tavily: <実行した検索語>
-      参照情報:
-      - <社内資料または外部情報の要約。情報源種別を明記>
-      外部検索URL:
-      - <Tavilyなど外部検索で取得したページタイトルまたは説明>: <URL>
-      一致した知見:
-      - <Google DriveとTavily、または複数資料で一致した内容>
-      矛盾/不足:
-      - <矛盾、未確認、取得不可の情報>
-      考察材料:
-      - <Advisorが原因考察・対策に使える材料>
-      信頼度:
-      - <高/中/低。理由を1文>
-      出典一覧:
-      - <社内資料はファイル名または文書タイトル、外部検索はページタイトルとURL>
-function_groups:
-  mcp_tools:
-    _type: datarobot_mcp_client
-  # To connect this agent to a remote A2A agent, uncomment the block below and add the
-  # function group name to the workflow's tool_names list.
-  # remote_agent:
-  #  _type: authenticated_a2a_client
-  #  url: "https://app.datarobot.com/api/v2/deployments/<deployment-id>/directAccess/a2a/"
-  #  auth_provider: datarobot_auth
-authentication:
-  datarobot_mcp_auth:
-    _type: datarobot_mcp_auth
-  datarobot_auth:
-    _type: datarobot_api_key
+          examples:
+            - Write a blog post about the future of AI in healthcare
+            - Create an article about sustainable energy trends
+            # Optional: Okta cross-application access (XAA) authentication for this agent's A2A endpoints.
+            # Uncomment to advertise XAA requirements on the agent card. See docs/agent/agent2agent-auth.md.
+            # cross_application_access:
+            #   token_exchange:
+            #     trusted_issuer: "https://your-org.okta.com"
+            #     audience: "https://your-org.okta.com/oauth2/ausXXXXXXXXXXXXXXX"
+            #   token_request:
+            #     token_url: "https://your-org.okta.com/oauth2/ausXXXXXXXXXXXXXXX/v1/token"
+            #     audience: "https://example.com/agents/my-agent-id"
+            #     scopes:
+            #       - "dr.impersonation"
+            # Optional: external identity and URL overrides published on the agent card.
+            # external:
+            #   id: "my-agent-id"
+            #   url: "https://my-agent-id.example.com/a2a/"
+# To connect this agent to a remote A2A agent, uncomment the block below and add the
+# function group name to the workflow's tool_names list.
+# For Okta XAA auth, use auth_provider: okta_auth instead of datarobot_auth.
+# function_groups:
+#   remote_agent:
+#     _type: authenticated_a2a_client
+#     url: "https://app.datarobot.com/api/v2/deployments/<deployment-id>/directAccess/a2a/"
+#     auth_provider: datarobot_auth
 llms:
   datarobot_llm:
     _type: datarobot-llm-component
+    # To enable LLM provider fallback/failover, remove the datarobot_llm block above and uncomment the following:
+    # datarobot_llm:
+    #   _type: datarobot-llm-router
+    #   primary:
+    #     use_datarobot_llm_gateway: true
+    #     llm_default_model: azure/gpt-5-mini-2025-08-07
+    #   fallbacks:
+    #     - use_datarobot_llm_gateway: true
+    #       llm_default_model: anthropic/claude-opus-4-20250514
+    #   num_retries: 1
 workflow:
-  _type: per_user_tool_calling_agent
+  _type: langgraph_agent
   llm_name: datarobot_llm
-  verbose: true
-  tool_names:
-    - mcp_tools
-    - search_agent
-
-    # Uncomment to inject A2A remote agent tools (must also uncomment function_groups.remote_agent above):
-    # - remote_agent
-  system_prompt: |-
-    あなたは製造品質管理のオーケストレーターです。
-    あなた自身が品質判定と現場向けの最終回答作成を担当します。
-    検索だけは search_agent に委譲してください。
-    実行順序:
-    1. 必ず最初に mcp_tools の predict_realtime を1回だけ呼び、不良品確率とPrediction Explanationsを取得する。
-    2. predict_realtime の結果から、良品 / 注意 / 高リスクを判定する。
-    3. 良品の場合は検索せず、品質判定形式の簡潔な結果だけを返して終了する。
-    4. 注意または高リスクの場合のみ、search_agent を1回呼ぶ。
-    5. search_agent には、あなたが作成した品質判定結果を「ユーザー入力として読める単一の依頼文」にして渡す。
-    6. search_agent の結果を受け取ったら、品質判定結果と検索結果を統合し、現場向けの最終回答だけを返す。
-    predict_realtime 呼び出しルール:
-    - deployment_id: ${DEPLOYMENT_ID:-673c15e8dd26fcda12559043}
-    - dataset: ユーザーが提供した製造条件をCSV文字列として渡す
-    - max_explanations: 5
-    - explanation_algorithm: "shap"
-    - predict_realtimeは必ず1回だけ呼ぶ
-    - search_agentにはpredict_realtimeを呼ばせない
-    主な特徴量の例:
-    - 乾燥ゾーン1温度
-    - UVロール温度
-    - 塗布長
-    - 種別
-    - ランプ点灯時間
-    - チャンバー内O2濃度
-    - コーター部相対湿度
-    特徴量名はCSVのカラム名と完全一致させてください。
-    ユーザーが一部の特徴量しか提供しない場合、不足分は空欄のまま渡してください。
-    CSV文字列の例:
-    "コーティング成分A,温度\n52.3,325\n"
-    判定基準:
-    - 不良品確率 50%以上: 高リスク
-    - 不良品確率 30%以上 50%未満: 注意
-    - 不良品確率 30%未満: 良品
-    品質判定整理ルール:
-    - Prediction Explanationsから寄与度の高い特徴量を最大3件まで整理する
-    - 各特徴量について値と、不良側に寄与したか低減側に寄与したかを短く書く
-    - 注意または高リスクの場合は、search_agentが検索条件を作れる粒度で「総合所見」「優先確認点」も整理する
-    良品の場合の最終出力形式:
-    【品質判定結果】
-    判定: 良品
-    不良品確率: <数値>
-    入力条件:
-    - <特徴量>=<値>
-    主な要因:
-    - <特徴量>=<値>: <寄与の向きと短い説明>
-    注意または高リスクの場合のsearch_agent入力形式:
-    以下の品質判定結果について、Google DriveとTavilyで根拠を検索し、【SEARCH_RESULT】形式で返してください。
-    【品質判定結果】
-    判定: <注意 または 高リスク>
-    不良品確率: <数値>
-    入力条件:
-    - <特徴量>=<値>
-    主な要因:
-    - <特徴量>=<値>: <寄与の向きと短い説明>
-    - <特徴量>=<値>: <寄与の向きと短い説明>
-    総合所見:
-    - <主要因の解釈を1-2文>
-    優先確認点:
-    - <現場で先に見るべき点>
-    注意または高リスクの場合の最終出力形式:
-    ### 🔴 判定サマリー
-    - 不良品確率と主要因を1行で要約
-    - 品質判定結果の重要点を1行で補足
-
-    ### 🟣 根拠付き原因考察
-    - 検索結果と品質判定結果が一致する原因仮説
-    - 矛盾または不足している確認事項
-
-    ### 🟡 即時対応（今すぐ実施）
-    - 当該ロットの扱い（保留・抜き取り検査など）
-    - ラインの一時停止の要否
-
-    ### 🔵 原因調査（本日中に実施）
-    - 主要因に対する具体的な調査手順
-    - 確認すべき部門・担当者
-    - 品質判定結果が示した優先確認点を反映する
-
-    ### 🟢 暫定対策（調査完了まで）
-    - 安全な製造条件の範囲を数値で提示
-    - 代替手順があれば記載
-
-    ### ⚪ 恒久対策候補
-    - 再発防止に向けた工程管理または標準化の候補
-    - 出典が不足する場合は検証条件を記載
-
-    ### 🔗 参照URL
-    - <外部検索で参照したページタイトル>: <URL>
-    - 外部検索URLがない場合は「外部検索URL: 取得なし」
-    最終回答ルール:
-    - 根拠がある主張には、文末に（社内資料）（外部検索）（両方一致）（品質判定のみ）のいずれかを付ける
-    - search_agentの外部検索URLにURLがある場合は、最終回答の「参照URL」に必ず転記する
-    - 社内資料だけの場合は、参照URLに外部検索URL: 取得なし と書く
-    - search_agentが情報不足または取得失敗を示した項目は、断定せず確認事項として扱う
-    - 各対策は具体的なアクションとして記述する
-      ×「温度を検討する」→ ○「温度を310℃以下に設定し、30分ごとに計測する」
-    - 専門用語には簡潔な説明を付ける
-    - 優先度の高い順に並べる
-    - 次の質問・アクションを促す文を含めない
-    - データのフォーマット（単位など）に関する話は避ける
-    - 不要な追加説明や進行提案は付けず、最終回答だけを返す
+  description: LangGraph planner/writer agent
+  # tool_names:
+  #   - remote_agent
+authentication:
+  datarobot_auth:
+    _type: datarobot_api_key
+  # Uncomment for Okta XAA authentication (requires PRINCIPAL_ID and PRIVATE_JWK env vars):
+  # okta_auth:
+  #   _type: okta_cross_app_access

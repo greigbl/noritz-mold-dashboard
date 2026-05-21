@@ -12,15 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-from pathlib import Path
 import re
 import shutil
-from typing import cast, Final, Optional, Any, Sequence
-import yaml  # type: ignore[import-untyped]
+from pathlib import Path
+from typing import Any, Final, Optional, Sequence, cast
 
 import datarobot as dr
 import pulumi
 import pulumi_datarobot
+import yaml  # type: ignore[import-untyped]
 from datarobot_pulumi_utils.pulumi import export, resolve_execution_environment_version
 from datarobot_pulumi_utils.pulumi.custom_model_deployment import CustomModelDeployment
 from datarobot_pulumi_utils.pulumi.stack import PROJECT_NAME
@@ -30,9 +30,7 @@ from datarobot_pulumi_utils.schema.custom_models import (
 )
 from datarobot_pulumi_utils.schema.exec_envs import RuntimeEnvironments
 
-
 from . import project_dir, use_case
-
 from .llm import custom_model_runtime_parameters as llm_custom_model_runtime_parameters
 
 DEFAULT_EXECUTION_ENVIRONMENT = "Python 3.11 GenAI Agents"
@@ -519,6 +517,21 @@ if session_secret_key := os.environ.get(SESSION_SECRET_KEY):
             type="credential",
             key=SESSION_SECRET_KEY,
             value=session_secret_cred.id,
+        ),
+    )
+
+TAVILY_API_KEY: Final[str] = "TAVILY_API_KEY"
+
+if tavily_api_key := os.environ.get(TAVILY_API_KEY):
+    tavily_api_key_cred = pulumi_datarobot.ApiTokenCredential(
+        agent_asset_name + " Tavily API Key",
+        args=pulumi_datarobot.ApiTokenCredentialArgs(api_token=str(tavily_api_key)),
+    )
+    agent_runtime_parameter_values.append(
+        pulumi_datarobot.CustomModelRuntimeParameterValueArgs(
+            type="credential",
+            key=TAVILY_API_KEY,
+            value=tavily_api_key_cred.id,
         ),
     )
 

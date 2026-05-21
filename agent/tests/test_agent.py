@@ -12,129 +12,69 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Copyright 2026 DataRobot, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#   http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-from unittest.mock import AsyncMock, Mock, patch
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from langchain_core.prompts import ChatPromptTemplate
 
 from agent import MyAgent
-from agent.myagent import graph_factory, prompt_template
+from agent.myagent import custompy_adaptor, noop_mcp_tools_context
 
 
-class TestMyAgentLangGraph:
-    @pytest.fixture
-    def agent(self) -> MyAgent:
-        mock_llm = Mock()
-        return MyAgent(llm=mock_llm, verbose=True)
+class TestMyAgentNat:
+    def test_myagent_is_nat_agent_subclass(self) -> None:
+        from datarobot_genai.nat.agent import NatAgent
 
-    def test_myagent_is_langgraph_agent_subclass(self):
-        """Test that MyAgent inherits from LangGraphAgent."""
-        from datarobot_genai.langgraph.agent import LangGraphAgent
+        assert issubclass(MyAgent, NatAgent)
 
-        assert issubclass(MyAgent, LangGraphAgent)
+    def test_init_uses_default_workflow_path(self) -> None:
+        agent = MyAgent()
 
-    def test_init_with_llm(self):
-        """Test initialization with an LLM instance."""
-        mock_llm = Mock()
-        agent = MyAgent(llm=mock_llm, verbose=True)
-        assert agent.llm == mock_llm
-        assert agent.verbose is True
-
-    def test_prompt_template_is_chat_prompt(self):
-        """Test that prompt_template is a ChatPromptTemplate."""
-        assert isinstance(prompt_template, ChatPromptTemplate)
-
-    def test_prompt_template_has_expected_variables(self):
-        """Test that prompt_template declares chat_history and topic variables."""
-        input_vars = prompt_template.input_variables
-        assert "chat_history" in input_vars
-        assert "topic" in input_vars
-
-    def test_prompt_template_formats_with_variables(self):
-        """Test that prompt_template can be formatted with chat_history and topic."""
-        format_kwargs = {
-            "chat_history": "User asked about AI trends.",
-            "topic": "artificial intelligence",
-        }
-        messages = prompt_template.format_messages(**format_kwargs)
-        assert len(messages) == 2
-        assert "{chat_history}" not in messages[0].content
-        assert "{topic}" not in messages[1].content
-        assert "artificial intelligence" in messages[1].content
-
-    @patch("agent.myagent.create_agent")
-    def test_graph_factory_creates_planner_and_writer(self, mock_create_agent):
-        """Test that graph_factory creates a graph with planner and writer nodes."""
-        mock_llm = Mock()
-        mock_tool = Mock()
-        graph = graph_factory(mock_llm, [mock_tool], verbose=False)
-        assert graph is not None
-        assert "planner_node" in graph.nodes
-        assert "writer_node" in graph.nodes
-
-    @patch("agent.myagent.create_agent")
-    def test_graph_factory_passes_llm_and_tools(self, mock_create_agent):
-        """Test that graph_factory passes LLM and tools to agents."""
-        mock_llm = Mock()
-        mock_tool = Mock()
-        graph_factory(mock_llm, [mock_tool], verbose=True)
-        assert mock_create_agent.call_count == 2
-        for call in mock_create_agent.call_args_list:
-            assert call[0][0] == mock_llm
-            assert mock_tool in call[1]["tools"]
-
-    def test_workflow_property_uses_graph_factory(self, agent):
-        """Test that the agent's workflow property produces a graph."""
-        with patch("agent.myagent.create_agent"):
-            workflow = agent.workflow
-            assert workflow is not None
-            assert "planner_node" in workflow.nodes
-            assert "writer_node" in workflow.nodes
-
-    @pytest.mark.parametrize(
-        "model_value, expected_model_name",
-        [
-            ("unknown", None),
-            ("gpt-4", "gpt-4"),
-            ("datarobot-deployed-llm", "datarobot-deployed-llm"),
-            (None, None),
-        ],
-    )
-    @patch("agent.myagent.get_llm", return_value=Mock())
-    @patch("agent.myagent.agent_chat_completion_wrapper", new_callable=AsyncMock)
-    @patch("agent.myagent.mcp_tools_context")
-    def test_custompy_adaptor_filters_placeholder_models(
-        self,
-        mock_mcp_ctx,
-        mock_wrapper,
-        mock_get_llm,
-        model_value,
-        expected_model_name,
-    ):
-        from agent.myagent import custompy_adaptor
-
-        completion_create_params = {
-            "model": model_value,
-            "messages": [{"role": "user", "content": "hi"}],
-        }
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(
-            custompy_adaptor(completion_create_params)
+        assert (
+            agent.workflow_path == Path(__file__).parents[1] / "agent" / "workflow.yaml"
         )
-        mock_get_llm.assert_called_once()
-        assert mock_get_llm.call_args[1]["model_name"] == expected_model_name
+
+    @pytest.mark.asyncio
+    async def test_noop_mcp_tools_context_returns_empty_tools(self) -> None:
+        async with noop_mcp_tools_context(MagicMock()) as tools:
+            assert tools == []
+
+    @pytest.mark.asyncio
+    @patch("agent.myagent.Config")
+    @patch("agent.myagent.MCPConfig")
+    @patch("agent.myagent.agent_chat_completion_wrapper", new_callable=AsyncMock)
+    @patch("agent.myagent.MyAgent")
+    async def test_custompy_adaptor_uses_nat_agent(
+        self,
+        mock_agent: MagicMock,
+        mock_wrapper: AsyncMock,
+        mock_mcp_config: MagicMock,
+        mock_config: MagicMock,
+    ) -> None:
+        mock_mcp_config.return_value.server_config = None
+        mock_config.return_value.tavily_api_key = None
+        completion_create_params = {
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "hi"}],
+            "forwarded_headers": {},
+            "authorization_context": {},
+        }
+
+        await custompy_adaptor(completion_create_params)
+
+        mock_agent.assert_called_once()
+        assert mock_agent.call_args.kwargs["forwarded_headers"] == {}
+        mock_wrapper.assert_awaited_once()
+
+    def test_datarobot_mcp_client_gets_tavily_header(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from datarobot_genai.nat.datarobot_mcp_client import (
+            DataRobotMCPStreamableHTTPClient,
+        )
+
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-key")
+
+        client = DataRobotMCPStreamableHTTPClient("http://localhost:9000/mcp")
+
+        assert client._custom_headers["x-tavily-api-key"] == "tvly-test-key"

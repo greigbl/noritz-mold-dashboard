@@ -24,6 +24,7 @@ from datarobot_genai.nat.agent import NatAgent
 from openai.types.chat import CompletionCreateParams
 
 import agent.register  # noqa: F401 - load nat_tool side effects when added in register.py
+from agent.config import Config
 
 if TYPE_CHECKING:
     from ragas import MultiTurnSample
@@ -71,6 +72,9 @@ async def custompy_adaptor(
     server_config = mcp_config.server_config
     headers = server_config["headers"] if server_config else {}
     forwarded_headers.update(headers)
+    config = Config()
+    if config.tavily_api_key:
+        forwarded_headers["x-tavily-api-key"] = config.tavily_api_key
     mcp_tools_factory = lambda: noop_mcp_tools_context(mcp_config)  # noqa: E731
     agent = MyAgent(
         verbose=completion_create_params.get("verbose", True),

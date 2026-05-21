@@ -18,7 +18,7 @@ Google Drive. The agent can use the native `gdrive_find_contents` and
 
 Tavily tools use an API key. For this application, set `TAVILY_API_KEY`
 in the project `.env`; deployment stores it as an Agent runtime credential. The
-Agent forwards it to the MCP server as `x-datarobot-tavily-api-key`, which is
+Agent forwards it to the MCP server as `x-tavily-api-key`, which is
 accepted by the native `tavily_search`, `tavily_extract`, `tavily_map`, and
 `tavily_crawl` tools.
 
@@ -27,13 +27,13 @@ the Agent, pass the key in the MCP client headers:
 
 ```json
 {
-  "x-datarobot-tavily-api-key": "${env:TAVILY_API_KEY}"
+  "x-tavily-api-key": "${env:TAVILY_API_KEY}"
 }
 ```
 
-The native Tavily tools also accept `x-tavily-api-key`; the
-`x-datarobot-tavily-api-key` form is preferred here because this template
-already forwards `x-datarobot-*` headers through the Agent path.
+Older native Tavily tools also accepted `x-datarobot-tavily-api-key`; the
+`x-tavily-api-key` form is used here because the current tool implementation
+requires that header name.
 
 To test against remote MCP servers:
 

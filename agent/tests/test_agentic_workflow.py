@@ -38,7 +38,6 @@ class TestCustomModel:
         assert isinstance(event_loop, type(asyncio.get_event_loop()))
         thread_pool_executor.shutdown()
 
-    @patch("agent.myagent.get_llm")
     @patch("agent.myagent.MyAgent")
     @patch.dict(
         os.environ,
@@ -49,7 +48,6 @@ class TestCustomModel:
     def test_chat(
         self,
         mock_agent,
-        mock_get_llm,
         mock_agent_response,
         stream,
         load_model_result,
@@ -60,8 +58,6 @@ class TestCustomModel:
         mock_agent_instance = MagicMock()
         mock_agent_instance.invoke = Mock(return_value=mock_agent_response)
         mock_agent.return_value = mock_agent_instance
-        mock_llm = Mock()
-        mock_get_llm.return_value = mock_llm
 
         completion_create_params = {
             "model": "test-model",
@@ -218,9 +214,7 @@ class TestCustomModel:
             assert actual == expected
 
         # Verify mocks were called correctly
-        mock_get_llm.assert_called_once_with(model_name="test-model")
         mock_agent.assert_called_once_with(
-            llm=mock_llm,
             forwarded_headers=kwargs["headers"],
             verbose=True,
             timeout=90,
@@ -237,13 +231,11 @@ class TestCustomModel:
             ),
         ]
 
-    @patch("agent.myagent.get_llm")
     @patch("agent.myagent.MyAgent")
     @patch.dict(os.environ, {"LLM_DEPLOYMENT_ID": "TEST_VALUE"}, clear=True)
     def test_chat_streaming(
         self,
         mock_agent,
-        mock_get_llm,
         load_model_result,
     ):
         from custom import chat
@@ -291,8 +283,6 @@ class TestCustomModel:
         mock_agent_instance = MagicMock()
         mock_agent_instance.invoke = Mock(return_value=mock_streaming_generator())
         mock_agent.return_value = mock_agent_instance
-        mock_llm = Mock()
-        mock_get_llm.return_value = mock_llm
 
         completion_create_params = {
             "model": "test-model",
@@ -349,9 +339,7 @@ class TestCustomModel:
         assert final_chunk["usage"]["total_tokens"] == 5
 
         # Verify mocks were called correctly
-        mock_get_llm.assert_called_once_with(model_name="test-model")
         mock_agent.assert_called_once_with(
-            llm=mock_llm,
             forwarded_headers=kwargs["headers"],
             verbose=True,
             timeout=90,

@@ -27,3 +27,38 @@ Framework-specific NAT plugins are loaded from datarobot-genai and NAT
 entrypoints. When Mem0 is enabled, memory registration lives in
 ``agent.register_memory`` so it can be shared by every workflow template.
 """
+
+from typing import Any
+
+
+def _patch_datarobot_mcp_tavily_headers() -> None:
+    """Forward the Tavily credential through NAT's DataRobot MCP client.
+
+    datarobot_mcp_client currently exposes MCPServerConfig.custom_headers, but
+    its DataRobot streamable HTTP wrapper does not pass those headers to the
+    underlying MCP client for the default shared session. The native Tavily MCP
+    tools require x-tavily-api-key, so inject it when the client is created.
+    """
+    from datarobot_genai.nat.datarobot_mcp_client import (  # noqa: PLC0415
+        DataRobotMCPStreamableHTTPClient,
+    )
+
+    if getattr(DataRobotMCPStreamableHTTPClient, "_tavily_header_patch", False):
+        return
+
+    original_init = DataRobotMCPStreamableHTTPClient.__init__
+
+    def patched_init(self: Any, *args: Any, **kwargs: Any) -> None:
+        original_init(self, *args, **kwargs)
+
+        from agent.config import Config  # noqa: PLC0415
+
+        tavily_api_key = Config().tavily_api_key
+        if tavily_api_key:
+            self._custom_headers["x-tavily-api-key"] = tavily_api_key
+
+    DataRobotMCPStreamableHTTPClient.__init__ = patched_init  # type: ignore[method-assign]
+    DataRobotMCPStreamableHTTPClient._tavily_header_patch = True
+
+
+_patch_datarobot_mcp_tavily_headers()

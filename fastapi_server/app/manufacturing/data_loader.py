@@ -173,6 +173,81 @@ def aggregate_daily_records(
     return daily_records
 
 
+def build_lot_prediction_records(
+    rows: list[CsvManufacturingRow],
+    lots_per_day: int = LOTS_PER_SYNTHETIC_DAY,
+    end_date: date = SYNTHETIC_END_DATE,
+) -> list[ManufacturingDailyRecord]:
+    if not rows:
+        return []
+
+    if any(row.get("日付", "").strip() for row in rows):
+        return [
+            build_lot_prediction_record(parse_row_date(row["日付"]), row)
+            for row in rows
+            if row.get("日付", "").strip()
+        ]
+
+    day_count = (len(rows) + lots_per_day - 1) // lots_per_day
+    start_date = end_date - timedelta(days=day_count - 1)
+    records: list[ManufacturingDailyRecord] = []
+    for index, row in enumerate(rows):
+        record_date = start_date + timedelta(days=index // lots_per_day)
+        records.append(build_lot_prediction_record(record_date, row))
+    return records
+
+
+def build_lot_prediction_record(
+    record_date: date,
+    row: CsvManufacturingRow,
+) -> ManufacturingDailyRecord:
+    coating_length = parse_length_m(row["塗布長"])
+    bleedout_count = 1 if parse_bool(row["ブリードアウト"]) else 0
+    coater_temperature = parse_optional_float(row.get("コーター部温度", "")) or 0.0
+    coater_humidity = parse_optional_float(row.get("コーター部相対湿度", "")) or 0.0
+    pump_pressure = parse_optional_float(row.get("ポンプ圧力", "")) or 0.0
+    drying_zone1_temperature = (
+        parse_optional_float(row.get("乾燥ゾーン1温度", "")) or 0.0
+    )
+    drying_zone2_temperature = (
+        parse_optional_float(row.get("乾燥ゾーン2温度", "")) or 0.0
+    )
+    uv_irradiance = parse_optional_float(row.get("UV照度", "")) or 0.0
+    chamber_o2_concentration = (
+        parse_optional_float(row.get("チャンバー内O2濃度", "")) or 0.0
+    )
+    uv_roll_temperature = parse_optional_float(row.get("UVロール温度", "")) or 0.0
+
+    return ManufacturingDailyRecord(
+        date=record_date,
+        lot_id=row.get("ロット番号") or None,
+        lots_produced=1,
+        total_coating_length_m=coating_length,
+        bleedout_count=bleedout_count,
+        bleedout_rate=float(bleedout_count),
+        coating_length_category=row["塗布長"].strip(),
+        coating_length_avg_m=coating_length,
+        product_type=row["種別"].strip(),
+        coater_temperature=coater_temperature,
+        coater_temperature_range=0.0,
+        coater_humidity=coater_humidity,
+        coater_humidity_range=0.0,
+        pump_pressure=pump_pressure,
+        pump_pressure_range=0.0,
+        drying_zone1_temperature=drying_zone1_temperature,
+        drying_zone1_temperature_range=0.0,
+        drying_zone2_temperature=drying_zone2_temperature,
+        drying_zone2_temperature_range=0.0,
+        uv_irradiance=uv_irradiance,
+        uv_irradiance_range=0.0,
+        lamp_lighting_hours=parse_optional_float(row.get("ランプ点灯時間", "")) or 0.0,
+        chamber_o2_concentration=chamber_o2_concentration,
+        chamber_o2_concentration_range=0.0,
+        uv_roll_temperature=uv_roll_temperature,
+        uv_roll_temperature_range=0.0,
+    )
+
+
 def build_daily_record(
     record_date: date,
     day_rows: list[CsvManufacturingRow],

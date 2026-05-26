@@ -303,6 +303,7 @@ def parse_prediction_response(
                 date=series[index].date,
                 probability=probability,
                 label=label,
+                source_id=series[index].lot_id,
             )
         )
 
@@ -329,6 +330,7 @@ def parse_prediction_csv_response(
                 date=series[index].date,
                 probability=probability,
                 label=label,
+                source_id=series[index].lot_id,
             )
         )
 

@@ -13,11 +13,19 @@
 # limitations under the License.
 
 import asyncio
+import hashlib
+from collections.abc import Sequence
 
-from app.manufacturing.data_loader import aggregate_daily_records, load_csv_rows
+from app.manufacturing.data_loader import (
+    aggregate_daily_records,
+    build_lot_prediction_records,
+    load_csv_rows,
+)
 from app.manufacturing.detectors import (
-    detect_all_spc_rbar_alerts,
-    detect_prediction_alerts,
+    DetectorContext,
+    ManufacturingDetector,
+    build_default_detectors,
+    run_detectors,
 )
 from app.manufacturing.insight_service import InsightService
 from app.manufacturing.models import (
@@ -31,6 +39,7 @@ from app.manufacturing.models import (
 )
 from app.manufacturing.prediction_client import (
     PredictionClient,
+    build_prediction_csv,
     create_prediction_client_from_env,
 )
 
@@ -40,11 +49,15 @@ class ManufacturingDashboardService:
         self,
         prediction_client: PredictionClient | None = None,
         insight_service: InsightService | None = None,
+        detectors: Sequence[ManufacturingDetector] | None = None,
     ) -> None:
         self.prediction_client = (
             prediction_client or create_prediction_client_from_env()
         )
         self.insight_service = insight_service or InsightService()
+        self.detectors = (
+            list(detectors) if detectors is not None else build_default_detectors()
+        )
         self._alerts_by_id: dict[str, ManufacturingAlert] = {}
         self._last_dashboard: ManufacturingDashboard | None = None
         self._prediction_task: asyncio.Task[list[PredictionResult]] | None = None
@@ -56,9 +69,22 @@ class ManufacturingDashboardService:
         self,
         series: list[ManufacturingDailyRecord] | None = None,
     ) -> ManufacturingDashboard:
+        prediction_series: list[ManufacturingDailyRecord]
+        if series is None:
+            csv_rows = load_csv_rows()
+            source_series = aggregate_daily_records(csv_rows)
+            prediction_series = build_lot_prediction_records(csv_rows)
+        else:
+            source_series = series
+            prediction_series = series
+
         sorted_series = sorted(
-            series if series is not None else aggregate_daily_records(load_csv_rows()),
+            source_series,
             key=lambda record: record.date,
+        )
+        sorted_prediction_series = sorted(
+            prediction_series,
+            key=lambda record: (record.date, record.lot_id or ""),
         )
         if not sorted_series:
             raise ValueError("Manufacturing data is empty.")
@@ -66,10 +92,17 @@ class ManufacturingDashboardService:
         for record in sorted_series:
             record.alert_ids = []
 
-        predictions, prediction_status = await self.resolve_predictions(sorted_series)
-        prediction_alerts = detect_prediction_alerts(sorted_series, predictions)
-        spc_alerts, rbar_charts = detect_all_spc_rbar_alerts(sorted_series)
-        alerts = prediction_alerts + spc_alerts
+        predictions, prediction_status = await self.resolve_predictions(
+            sorted_prediction_series
+        )
+        alerts, rbar_charts = run_detectors(
+            sorted_series,
+            DetectorContext(predictions=predictions),
+            self.detectors,
+        )
+        prediction_alert_count = sum(
+            1 for alert in alerts if alert.alert_type == "prediction_ai"
+        )
 
         alert_ids_by_date: dict[str, list[str]] = {}
         for alert in alerts:
@@ -93,8 +126,8 @@ class ManufacturingDashboardService:
                 bleedout_count=latest.bleedout_count,
                 bleedout_rate=latest.bleedout_rate,
                 alert_count=len(alerts),
-                prediction_alert_count=len(prediction_alerts),
-                business_rule_alert_count=len(alerts) - len(prediction_alerts),
+                prediction_alert_count=prediction_alert_count,
+                business_rule_alert_count=len(alerts) - prediction_alert_count,
                 critical_alert_count=sum(
                     1 for alert in alerts if alert.severity == "critical"
                 ),
@@ -167,8 +200,6 @@ class ManufacturingDashboardService:
 
 
 def build_prediction_job_key(series: list[ManufacturingDailyRecord]) -> str:
-    latest = series[-1]
-    return (
-        f"{series[0].date.isoformat()}:{latest.date.isoformat()}:"
-        f"{len(series)}:{latest.lots_produced}:{latest.total_coating_length_m}"
-    )
+    csv_payload = build_prediction_csv(series)
+    digest = hashlib.sha256(csv_payload.encode("utf-8")).hexdigest()
+    return f"{len(series)}:{digest}"

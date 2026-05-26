@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import dataclass, field
+from itertools import groupby
+from operator import attrgetter
 from statistics import mean
+from typing import Protocol
 
 from app.manufacturing.models import (
     ManufacturingAlert,
@@ -58,23 +62,104 @@ RBAR_METRIC_CONFIG: dict[MetricName, tuple[str, str]] = {
 }
 
 
+@dataclass
+class DetectorContext:
+    predictions: list[PredictionResult] = field(default_factory=list)
+
+
+@dataclass
+class DetectorResult:
+    alerts: list[ManufacturingAlert] = field(default_factory=list)
+    rbar_charts: dict[MetricName, RbarChart] = field(default_factory=dict)
+
+
+class ManufacturingDetector(Protocol):
+    rule_id: str
+    rule_version: str
+
+    def detect(
+        self,
+        series: list[ManufacturingDailyRecord],
+        context: DetectorContext,
+    ) -> DetectorResult: ...
+
+
+class PredictionThresholdDetector:
+    rule_id = PREDICTION_RULE_ID
+    rule_version = RULE_VERSION
+
+    def detect(
+        self,
+        series: list[ManufacturingDailyRecord],
+        context: DetectorContext,
+    ) -> DetectorResult:
+        return DetectorResult(
+            alerts=detect_prediction_alerts(series, context.predictions)
+        )
+
+
+class SpcRbarDetector:
+    rule_id = R_BAR_RULE_ID
+    rule_version = RULE_VERSION
+
+    def detect(
+        self,
+        series: list[ManufacturingDailyRecord],
+        context: DetectorContext,
+    ) -> DetectorResult:
+        alerts, rbar_charts = detect_all_spc_rbar_alerts(series)
+        return DetectorResult(alerts=alerts, rbar_charts=rbar_charts)
+
+
+def build_default_detectors() -> list[ManufacturingDetector]:
+    return [PredictionThresholdDetector(), SpcRbarDetector()]
+
+
+def run_detectors(
+    series: list[ManufacturingDailyRecord],
+    context: DetectorContext,
+    detectors: list[ManufacturingDetector] | None = None,
+) -> tuple[list[ManufacturingAlert], dict[MetricName, RbarChart]]:
+    alerts: list[ManufacturingAlert] = []
+    rbar_charts: dict[MetricName, RbarChart] = {}
+
+    for detector in detectors or build_default_detectors():
+        result = detector.detect(series, context)
+        alerts.extend(result.alerts)
+        rbar_charts.update(result.rbar_charts)
+
+    return alerts, rbar_charts
+
+
 def detect_prediction_alerts(
     series: list[ManufacturingDailyRecord],
     predictions: list[PredictionResult],
     threshold: float = PREDICTION_ALERT_THRESHOLD,
 ) -> list[ManufacturingAlert]:
-    prediction_by_date = {prediction.date: prediction for prediction in predictions}
+    predictions_by_date = {
+        date: list(date_predictions)
+        for date, date_predictions in groupby(
+            sorted(predictions, key=attrgetter("date")),
+            key=attrgetter("date"),
+        )
+    }
     alerts: list[ManufacturingAlert] = []
 
     for record in series:
-        prediction = prediction_by_date.get(record.date)
-        if prediction is None:
+        record_predictions = predictions_by_date.get(record.date)
+        if not record_predictions:
             continue
 
-        record.prediction_probability = round(prediction.probability, 4)
-        record.prediction_label = prediction.label
+        max_prediction = max(record_predictions, key=attrgetter("probability"))
+        high_risk_predictions = [
+            prediction
+            for prediction in record_predictions
+            if prediction.probability >= threshold
+        ]
+        record.prediction_probability = round(max_prediction.probability, 4)
+        record.prediction_label = max_prediction.label
 
-        if prediction.probability < threshold:
+        if not high_risk_predictions:
             continue
 
         alert_id = f"prediction-{record.date.isoformat()}"
@@ -90,15 +175,18 @@ def detect_prediction_alerts(
                 date=record.date,
                 title="予測AIがブリードアウト高リスクを検知",
                 description="DataRobot予測確率が運用しきい値を超過しました。",
-                actual=round(prediction.probability, 4),
+                actual=round(max_prediction.probability, 4),
                 threshold=threshold,
                 rule_id=PREDICTION_RULE_ID,
                 rule_version=RULE_VERSION,
                 evidence={
-                    "probability": round(prediction.probability, 4),
-                    "label": prediction.label,
+                    "probability": round(max_prediction.probability, 4),
+                    "label": max_prediction.label,
                     "threshold": threshold,
                     "bleedoutRate": record.bleedout_rate,
+                    "predictionCount": len(record_predictions),
+                    "highRiskPredictionCount": len(high_risk_predictions),
+                    "sourceId": max_prediction.source_id,
                 },
             )
         )

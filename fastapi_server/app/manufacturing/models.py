@@ -49,6 +49,7 @@ class ManufacturingBaseModel(BaseModel):
 
 class ManufacturingDailyRecord(ManufacturingBaseModel):
     date: date
+    lot_id: str | None = None
     lots_produced: int
     total_coating_length_m: float
     bleedout_count: int
@@ -146,3 +147,4 @@ class PredictionResult(ManufacturingBaseModel):
     date: date
     probability: float
     label: str | None = None
+    source_id: str | None = None

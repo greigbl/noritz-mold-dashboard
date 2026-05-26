@@ -21,11 +21,20 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.v1 import manufacturing as manufacturing_api
+from app.manufacturing import service as manufacturing_service
 from app.manufacturing.data_loader import (
     aggregate_daily_records,
     build_fallback_csv_rows,
+    build_lot_prediction_records,
 )
-from app.manufacturing.detectors import detect_spc_rbar_alerts
+from app.manufacturing.detectors import (
+    DetectorContext,
+    DetectorResult,
+    ManufacturingDetector,
+    build_default_detectors,
+    detect_spc_rbar_alerts,
+    run_detectors,
+)
 from app.manufacturing.insight_service import InsightService
 from app.manufacturing.models import (
     ManufacturingAlert,
@@ -108,6 +117,28 @@ class DelayedPredictionClient(StaticPredictionClient):
         return await super().predict(series)
 
 
+class LotAwarePredictionClient:
+    status: PredictionStatus = "available"
+
+    def __init__(self, probabilities: dict[str, float]) -> None:
+        self.probabilities = probabilities
+        self.predicted_lot_ids: list[str | None] = []
+
+    async def predict(
+        self, series: list[ManufacturingDailyRecord]
+    ) -> list[PredictionResult]:
+        self.predicted_lot_ids = [record.lot_id for record in series]
+        return [
+            PredictionResult(
+                date=record.date,
+                probability=self.probabilities.get(record.lot_id or "", 0.05),
+                label="TRUE",
+                source_id=record.lot_id,
+            )
+            for record in series
+        ]
+
+
 class CountingInsightService(InsightService):
     def __init__(self) -> None:
         super().__init__()
@@ -118,6 +149,45 @@ class CountingInsightService(InsightService):
     ) -> list[ManufacturingAlert]:
         self.calls += 1
         return await super().prepare_insights(dashboard)
+
+
+class BleedoutRateDetector:
+    rule_id = "business.bleedout_rate.threshold"
+    rule_version = "1.0.0"
+
+    def detect(
+        self,
+        series: list[ManufacturingDailyRecord],
+        context: DetectorContext,
+    ) -> DetectorResult:
+        alerts: list[ManufacturingAlert] = []
+        for record in series:
+            if record.bleedout_rate < 0.05:
+                continue
+            alerts.append(
+                ManufacturingAlert(
+                    id=f"business-bleedout-rate-{record.date.isoformat()}",
+                    dedup_key=f"business_rule:bleedout_rate:{record.date.isoformat()}",
+                    alert_type="business_rule",
+                    severity="warning",
+                    status="firing",
+                    source="business_rule",
+                    metric="bleedout_rate",
+                    date=record.date,
+                    title="ブリードアウト率が業務しきい値を超過",
+                    description="日次ブリードアウト率が業務上の確認基準を超えました。",
+                    actual=record.bleedout_rate,
+                    threshold=0.05,
+                    rule_id=self.rule_id,
+                    rule_version=self.rule_version,
+                    evidence={"bleedoutRate": record.bleedout_rate},
+                )
+            )
+        return DetectorResult(alerts=alerts)
+
+
+def assert_detector_type(_detector: ManufacturingDetector) -> None:
+    return None
 
 
 def stable_series(days: int = 12) -> list[ManufacturingDailyRecord]:
@@ -181,6 +251,37 @@ def test_aggregate_daily_records_assigns_synthetic_dates() -> None:
     assert daily_records[0].uv_irradiance_range > 0
     assert rows[0]["日付"] == "2026-04-26"
     assert rows[0]["ロット番号"] == "SC20260426-0001"
+
+
+def test_build_lot_prediction_records_preserves_source_rows() -> None:
+    rows = [
+        {
+            "日付": "2026-04-27",
+            "ロット番号": "SC20260427-0274",
+            "塗布長": "1500m",
+            "種別": "研究所テスト",
+            "号機": "YC-08",
+            "コーター部温度": "28.22",
+            "コーター部相対湿度": "50.7",
+            "ポンプ圧力": "0.900",
+            "乾燥ゾーン1温度": "120.04",
+            "乾燥ゾーン2温度": "122.15",
+            "UV照度": "1020.6",
+            "ランプ点灯時間": "3581",
+            "チャンバー内O2濃度": "0.01100",
+            "UVロール温度": "89.05",
+            "ブリードアウト": "TRUE",
+        }
+    ]
+
+    records = build_lot_prediction_records(rows)
+
+    assert len(records) == 1
+    assert records[0].lot_id == "SC20260427-0274"
+    assert records[0].product_type == "研究所テスト"
+    assert records[0].coating_length_category == "1500m"
+    assert records[0].lamp_lighting_hours == 3581
+    assert records[0].bleedout_rate == 1.0
 
 
 def test_prediction_payload_uses_deployment_training_features_only() -> None:
@@ -252,6 +353,35 @@ async def test_prediction_alert_created_when_probability_exceeds_threshold() -> 
     assert prediction_alerts[0].insight_status == "ready"
 
 
+@pytest.mark.anyio
+async def test_dashboard_predicts_each_lot_and_uses_daily_max_probability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rows = build_fallback_csv_rows(days=1)
+    rows[-1]["ロット番号"] = "SC20260427-0274"
+    rows[-1]["塗布長"] = "1500m"
+    rows[-1]["種別"] = "研究所テスト"
+    rows[-1]["ランプ点灯時間"] = "3581"
+    rows[-1]["ブリードアウト"] = "TRUE"
+    prediction_client = LotAwarePredictionClient({"SC20260427-0274": 0.91})
+    monkeypatch.setattr(manufacturing_service, "load_csv_rows", lambda: rows)
+    service = ManufacturingDashboardService(
+        prediction_client=prediction_client,
+        insight_service=InsightService(),
+    )
+
+    dashboard = await service.build_dashboard()
+
+    prediction_alerts = [
+        alert for alert in dashboard.alerts if alert.alert_type == "prediction_ai"
+    ]
+    assert len(prediction_client.predicted_lot_ids) == len(rows)
+    assert "SC20260427-0274" in prediction_client.predicted_lot_ids
+    assert dashboard.series[-1].prediction_probability == 0.91
+    assert dashboard.summary.prediction_alert_count == 1
+    assert prediction_alerts[0].evidence["sourceId"] == "SC20260427-0274"
+
+
 @pytest.mark.asyncio
 async def test_background_prediction_returns_running_until_results_are_ready() -> None:
     service = ManufacturingDashboardService(
@@ -298,6 +428,42 @@ def test_spc_rbar_detector_can_target_other_process_metrics() -> None:
     assert len(alerts) == 1
     assert alerts[0].metric == "uv_irradiance"
     assert "UV照度" in alerts[0].title
+
+
+def test_registered_detectors_run_without_service_changes() -> None:
+    series = stable_series(days=3)
+    series[-1].bleedout_rate = 0.07
+    detector = BleedoutRateDetector()
+    assert_detector_type(detector)
+
+    alerts, rbar_charts = run_detectors(
+        series,
+        DetectorContext(predictions=[]),
+        [detector, *build_default_detectors()],
+    )
+
+    assert any(alert.rule_id == detector.rule_id for alert in alerts)
+    assert "coater_temperature" in rbar_charts
+
+
+@pytest.mark.anyio
+async def test_dashboard_service_accepts_additional_business_rule_detectors() -> None:
+    series = stable_series(days=3)
+    series[-1].bleedout_rate = 0.07
+    service = ManufacturingDashboardService(
+        prediction_client=StaticPredictionClient(probability=0.1),
+        insight_service=InsightService(),
+        detectors=[BleedoutRateDetector(), *build_default_detectors()],
+    )
+
+    dashboard = await service.build_dashboard(series)
+
+    business_alerts = [
+        alert for alert in dashboard.alerts if alert.alert_type == "business_rule"
+    ]
+    assert len(business_alerts) == 1
+    assert dashboard.summary.business_rule_alert_count >= 1
+    assert business_alerts[0].id in dashboard.series[-1].alert_ids
 
 
 @pytest.mark.anyio

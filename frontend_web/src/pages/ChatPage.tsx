@@ -169,9 +169,17 @@ export function ChatImplementation({ chatId }: { chatId: string }) {
   );
 }
 
-function buildAlertChatPrompt(alert: ManufacturingAlert) {
+export function buildAlertChatPrompt(alert: ManufacturingAlert) {
+  const searchOnlyInstructions =
+    alert.alertType === 'prediction_ai'
+      ? []
+      : [
+          '実行モード: search_only',
+          'この依頼では predict_realtime を呼ばず、既存アラート情報をもとに search_agent に検索だけを1回行わせてください。',
+        ];
   const lines = [
     '次の製造アラートについて、原因仮説、確認すべき工程データ、初動対応を整理してください。',
+    ...searchOnlyInstructions,
     '',
     `アラートID: ${alert.id}`,
     `種別: ${alert.alertType}`,

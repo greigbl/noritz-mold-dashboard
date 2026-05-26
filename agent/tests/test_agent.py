@@ -78,3 +78,15 @@ class TestMyAgentNat:
         client = DataRobotMCPStreamableHTTPClient("http://localhost:9000/mcp")
 
         assert client._custom_headers["x-tavily-api-key"] == "tvly-test-key"
+
+    def test_workflow_branches_business_alerts_to_search_only(self) -> None:
+        workflow_text = (
+            Path(__file__).parents[1] / "agent" / "workflow.yaml"
+        ).read_text()
+
+        assert "実行モード: search_only" in workflow_text
+        assert "種別: spc_rbar" in workflow_text
+        assert "種別: business_rule" in workflow_text
+        assert "predict_realtime を呼び出してはいけません" in workflow_text
+        assert "search_agent を1回だけ呼んでください" in workflow_text
+        assert "通常の製造条件入力の場合のみ" in workflow_text

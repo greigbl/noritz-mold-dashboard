@@ -311,7 +311,7 @@ def _enabled_tools_runtime_params() -> list[
         pulumi_datarobot.CustomModelRuntimeParameterValueArgs(
             key="enable_tavily_tools",
             type="boolean",
-            value=_bool_from_env_or_cli("ENABLE_TAVILY_TOOLS", "tavily", "true"),
+            value=_bool_from_env_or_cli("ENABLE_TAVILY_TOOLS", "tavily", "false"),
         ),
     ]
 

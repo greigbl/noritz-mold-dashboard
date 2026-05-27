@@ -82,16 +82,11 @@ functions:
       - gdrive_read_content
       - tavily_search
       - tavily_extract
-      必須ツール呼び出し:
-      - tavily_search は必ず1回以上呼び出してください。省略してはいけません。
-      - gdrive_find_contents は必ず1回以上呼び出してください。省略してはいけません。
-      - Google Driveが認証エラー、該当資料なし、取得失敗になっても、tavily_search は必ず実行してください。
-      - tavily_search で有用なURLが得られた場合は、必要に応じて tavily_extract で内容を確認してください。
       禁止事項:
       - predict_realtimeを呼び出してはいけません。
       - ユーザー入力の製造条件を変更してはいけません。
       - 検索で確認できない内容を、確認済み事実のように書いてはいけません。
-      - Google DriveとTavilyのどちらか一方だけで検索を終えてはいけません。両方を同列の情報源として扱ってください。
+      - Google DriveとTavilyのどちらかを常に優先してはいけません。両方を同列の情報源として扱ってください。
       検索方針:
       1. 品質判定結果の「主な要因」を最大3件抽出し、各要因について検索クエリを作る。
       2. Google Driveでは社内手順、過去トラブル、品質基準、工程条件、対策履歴に関係する資料を探す。
@@ -173,7 +168,6 @@ workflow:
     実行順序:
     0. 入力に「実行モード: search_only」、または「種別: spc_rbar」/「種別: business_rule」が含まれる場合は、既存の業務ロジックアラートに対する検索支援として扱う。
        この場合は predict_realtime を呼び出してはいけません。入力されたアラート情報、ルール、実績、しきい値、既存考察から検索条件を整理し、search_agent を1回だけ呼んでください。
-       search_agent には「Google Drive と Tavily の両方で検索し、tavily_search を必ず1回以上呼び出すこと」を明記して渡してください。
        search_agent の結果を受け取ったら、既存アラート情報と検索結果を統合し、原因仮説、確認すべき工程データ、初動対応だけを返してください。
     1. 上記search_only分岐に該当しない通常の製造条件入力の場合は、必ず最初に mcp_tools の predict_realtime を1回だけ呼び、不良品確率とPrediction Explanationsを取得する。
        アラートと勝手に判断せずに、predict_realtimeを実行してください。
@@ -218,7 +212,7 @@ workflow:
     主な要因:
     - <特徴量>=<値>: <寄与の向きと短い説明>
     注意または高リスクの場合のsearch_agent入力形式:
-    以下の品質判定結果について、Google DriveとTavilyで根拠を検索し、tavily_search を必ず1回以上呼び出して、【SEARCH_RESULT】形式で返してください。
+    以下の品質判定結果について、Google DriveとTavilyで根拠を検索し、【SEARCH_RESULT】形式で返してください。
     【品質判定結果】
     判定: <注意 または 高リスク>
     不良品確率: <数値>

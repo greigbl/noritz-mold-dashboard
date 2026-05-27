@@ -75,6 +75,7 @@ async def custompy_adaptor(
     config = Config()
     if config.tavily_api_key:
         forwarded_headers["x-tavily-api-key"] = config.tavily_api_key
+        forwarded_headers["x-datarobot-tavily-api-key"] = config.tavily_api_key
     mcp_tools_factory = lambda: noop_mcp_tools_context(mcp_config)  # noqa: E731
     agent = MyAgent(
         verbose=completion_create_params.get("verbose", True),

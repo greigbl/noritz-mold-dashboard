@@ -89,4 +89,8 @@ class TestMyAgentNat:
         assert "種別: business_rule" in workflow_text
         assert "predict_realtime を呼び出してはいけません" in workflow_text
         assert "search_agent を1回だけ呼んでください" in workflow_text
-        assert "通常の製造条件入力の場合のみ" in workflow_text
+        assert "通常の製造条件入力の場合は" in workflow_text
+        assert (
+            "アラートと勝手に判断せずに、predict_realtimeを実行してください"
+            in workflow_text
+        )

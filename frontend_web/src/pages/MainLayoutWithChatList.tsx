@@ -1,4 +1,4 @@
-import { useLayoutEffect } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { Link, Outlet, useLocation, useNavigate, useParams, useMatch } from 'react-router-dom';
 import { ChatSidebar } from '@/components/block/chat/chat-sidebar';
 import { useChatList } from '@/components/block/chat/hooks/use-chat-list';
@@ -24,6 +24,9 @@ export function MainLayout() {
   const isDashboardPage = useMatch(PATHS.DASHBOARD);
   const isDashboardAlertPage = useMatch(PATHS.DASHBOARD_ALERT);
   const isChat = isChatEmptyPage || isChatSelectedPage;
+  const alertIdParam = new URLSearchParams(location.search).get('alertId');
+  const shouldCreateAlertChat = !!isChatEmptyPage && !!alertIdParam;
+  const createdAlertChatRef = useRef<string | null>(null);
 
   const {
     hasChat,
@@ -41,10 +44,20 @@ export function MainLayout() {
   });
 
   useLayoutEffect(() => {
+    if (!shouldCreateAlertChat) {
+      createdAlertChatRef.current = null;
+    }
     if (isLoadingChats || !chats || chats?.find(c => c.id === chatId)) {
       return;
     }
     if (!isChat) {
+      return;
+    }
+    if (shouldCreateAlertChat) {
+      if (createdAlertChatRef.current !== alertIdParam) {
+        createdAlertChatRef.current = alertIdParam;
+        addChatHandler();
+      }
       return;
     }
     if (!chats.length) {
@@ -52,7 +65,7 @@ export function MainLayout() {
     } else {
       setChatIdHandler(chats[0].id);
     }
-  }, [chats, isLoadingChats, isChat, chatId]);
+  }, [alertIdParam, chats, isLoadingChats, isChat, chatId, shouldCreateAlertChat]);
 
   return (
     <div className="flex h-svh w-full flex-row">

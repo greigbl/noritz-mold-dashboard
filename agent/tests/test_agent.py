@@ -78,6 +78,7 @@ class TestMyAgentNat:
         client = DataRobotMCPStreamableHTTPClient("http://localhost:9000/mcp")
 
         assert client._custom_headers["x-tavily-api-key"] == "tvly-test-key"
+        assert client._custom_headers["x-datarobot-tavily-api-key"] == "tvly-test-key"
 
     def test_workflow_branches_business_alerts_to_search_only(self) -> None:
         workflow_text = (

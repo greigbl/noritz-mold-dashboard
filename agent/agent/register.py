@@ -37,7 +37,9 @@ def _patch_datarobot_mcp_tavily_headers() -> None:
     datarobot_mcp_client currently exposes MCPServerConfig.custom_headers, but
     its DataRobot streamable HTTP wrapper does not pass those headers to the
     underlying MCP client for the default shared session. The native Tavily MCP
-    tools require x-tavily-api-key, so inject it when the client is created.
+    tools require a Tavily API key header, so inject it when the client is
+    created. The x-datarobot-* variant survives DataRobot directAccess header
+    filtering in deployed MCP calls.
     """
     from datarobot_genai.nat.datarobot_mcp_client import (  # noqa: PLC0415
         DataRobotMCPStreamableHTTPClient,
@@ -56,6 +58,7 @@ def _patch_datarobot_mcp_tavily_headers() -> None:
         tavily_api_key = Config().tavily_api_key
         if tavily_api_key:
             self._custom_headers["x-tavily-api-key"] = tavily_api_key
+            self._custom_headers["x-datarobot-tavily-api-key"] = tavily_api_key
 
     DataRobotMCPStreamableHTTPClient.__init__ = patched_init  # type: ignore[method-assign]
     DataRobotMCPStreamableHTTPClient._tavily_header_patch = True

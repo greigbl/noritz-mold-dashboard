@@ -243,3 +243,4 @@ class TestHeaderForwarding:
         forwarded = agent_kwargs["forwarded_headers"]
         assert forwarded["X-Test"] == "value"
         assert forwarded["x-tavily-api-key"] == "tvly-test-key"
+        assert forwarded["x-datarobot-tavily-api-key"] == "tvly-test-key"

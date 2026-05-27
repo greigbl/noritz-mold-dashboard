@@ -432,6 +432,40 @@ def test_custom_model_created(monkeypatch):
     assert isinstance(kwargs["files"], list)
 
 
+def test_tavily_tools_enabled_by_default(monkeypatch):
+    """Tavily is required by the manufacturing search workflow."""
+    monkeypatch.delenv("MCP_CLI_CONFIGS", raising=False)
+    monkeypatch.delenv("ENABLE_TAVILY_TOOLS", raising=False)
+
+    import importlib
+    import infra.mcp_server as mcp_infra
+
+    importlib.reload(mcp_infra)
+
+    runtime_params = {
+        param.key: param.value
+        for param in mcp_infra.deployments_model_runtime_parameters
+    }
+    assert runtime_params["enable_tavily_tools"] == "true"
+
+
+def test_mcp_cli_configs_can_disable_tavily_tools(monkeypatch):
+    """Explicit MCP_CLI_CONFIGS selection still controls optional tools."""
+    monkeypatch.setenv("MCP_CLI_CONFIGS", "predictive,gdrive")
+    monkeypatch.delenv("ENABLE_TAVILY_TOOLS", raising=False)
+
+    import importlib
+    import infra.mcp_server as mcp_infra
+
+    importlib.reload(mcp_infra)
+
+    runtime_params = {
+        param.key: param.value
+        for param in mcp_infra.deployments_model_runtime_parameters
+    }
+    assert runtime_params["enable_tavily_tools"] == "false"
+
+
 def test_mcp_item_lineage_metadata(monkeypatch):
     import importlib
     import infra.mcp_server as mcp_infra

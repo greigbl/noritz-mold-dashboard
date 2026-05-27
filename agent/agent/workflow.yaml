@@ -1,5 +1,5 @@
 ---
-# Copyright 2025 DataRobot, Inc.
+# Copyright 2026 DataRobot, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,6 +15,9 @@
 general:
   front_end:
     _type: dragent_fastapi
+    # Step adaptor is not necessary for custom agents
+    step_adaptor:
+      mode: 'off'
     # If you don't want your agent to expose A2A endpoints, remove the following block.
     a2a:
       server:
@@ -36,6 +39,29 @@ general:
           description: 分析結果を基に、現場で実行できる優先度付きの対策案を提示する。
           tags: []
           examples: [現場で今すぐ取るべき対策を提案して, 恒久対策まで含めて改善案をまとめて]
+            # Optional: Okta cross-application access (XAA) authentication for this agent's A2A endpoints.
+            # Uncomment to advertise XAA requirements on the agent card. See docs/agent/agent2agent-auth.md.
+            # cross_application_access:
+            #   token_exchange:
+            #     trusted_issuer: "https://your-org.okta.com"
+            #     audience: "https://your-org.okta.com/oauth2/ausXXXXXXXXXXXXXXX"
+            #   token_request:
+            #     token_url: "https://your-org.okta.com/oauth2/ausXXXXXXXXXXXXXXX/v1/token"
+            #     audience: "https://example.com/agents/my-agent-id"
+            #     scopes:
+            #       - "dr.impersonation"
+            # Optional: external identity and URL overrides published on the agent card.
+            # external:
+            #   id: "my-agent-id"
+            #   url: "https://my-agent-id.example.com/a2a/"
+# To connect this agent to a remote A2A agent, uncomment the block below and add the
+# function group name to the workflow's tool_names list.
+# For Okta XAA auth, use auth_provider: okta_auth instead of datarobot_auth.
+# function_groups:
+#   remote_agent:
+#     _type: authenticated_a2a_client
+#     url: "https://app.datarobot.com/api/v2/deployments/<deployment-id>/directAccess/a2a/"
+#     auth_provider: datarobot_auth
 functions:
   # ---------------------------------------------------------------------------
   # Search Agent: Tavily + Google Drive検索エージェント
@@ -108,12 +134,26 @@ authentication:
     _type: datarobot_mcp_auth
   datarobot_auth:
     _type: datarobot_api_key
+  # Uncomment for Okta XAA authentication (requires PRINCIPAL_ID and PRIVATE_JWK env vars):
+  # okta_auth:
+  #   _type: okta_cross_app_access
 llms:
   datarobot_llm:
     _type: datarobot-llm-component
+    # To enable LLM provider fallback/failover, remove the datarobot_llm block above and uncomment the following:
+    # datarobot_llm:
+    #   _type: datarobot-llm-router
+    #   primary:
+    #     use_datarobot_llm_gateway: true
+    #     llm_default_model: azure/gpt-5-mini-2025-08-07
+    #   fallbacks:
+    #     - use_datarobot_llm_gateway: true
+    #       llm_default_model: anthropic/claude-opus-4-20250514
+    #   num_retries: 1
 workflow:
   _type: per_user_tool_calling_agent
   llm_name: datarobot_llm
+  description: 製造条件から不良品リスクを判定し、原因分析と現場向け対策案を返す品質管理エージェント。
   verbose: true
   tool_names:
     - mcp_tools

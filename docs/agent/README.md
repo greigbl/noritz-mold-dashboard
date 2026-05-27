@@ -15,6 +15,7 @@ For the official DataRobot documentation on agent components, see [Agent compone
 | [Front servers](#front-servers) | The two supported front server implementations: DRUM and DRAgent. |
 | [Agent types](#agent-types) | Supported agent frameworks and links to examples. |
 | [Debugging](./debugging.md) | Debug agents locally using the CLI, VS Code, and PyCharm. |
+| [Local evaluation](./evaluation.md) | Evaluate agentic workflows locally with Pytest and integrate tests into CI/CD pipelines. |
 | [Further reading](#further-reading) | Links to official DataRobot docs for troubleshooting, tracing, global tools, and more. |
 
 ## Features
@@ -27,7 +28,7 @@ See the [AG-UI integration guide](./ag-ui.md) for details on each event type and
 
 ### Agent-to-Agent (A2A)
 
-Agents can expose themselves as A2A servers and connect to remote agents via the agent-to-agent protocol. This requires the DRAgent front server (`ENABLE_DRAGENT_SERVER=true`). See [Agent2Agent](./agent2agent.md) for configuration and usage.
+Agents can expose themselves as A2A servers and connect to remote agents via the agent-to-agent protocol. This requires the DRAgent front server (`ENABLE_DRAGENT_SERVER=true`). See [Agent2Agent](./agent2agent.md) for configuration and usage, and [A2A Authentication](./agent2agent-auth.md) for DataRobot API key and Okta XAA auth setup.
 
 ## Agent file structure
 
@@ -133,7 +134,7 @@ See the framework-specific documentation for detailed implementation guides:
 
 ## Tool integration
 
-Agents can use tools to extend their capabilities. Tools are injected at runtime from multiple sources — no static tool modules need to be defined in the repository.
+Agents can use tools to extend their capabilities. Tools are injected at runtime from multiple sources. The exact pattern depends on the framework: LangGraph, CrewAI, and LlamaIndex often use in-repo tool functions passed into the graph, crew, or workflow; **NAT** custom tools are registered with `nat_tool` in `register.py`, declared under `functions` in `workflow.yaml`, and rely on importing `agent.register` at startup&mdash;see [NAT custom local tools](./frameworks/nat.md#custom-local-tools).
 
 ### MCP tools
 
@@ -141,11 +142,13 @@ MCP tools are loaded from the MCP server via `mcp_tools_context()`. Each framewo
 
 ### Workflow tools (DRAgent only)
 
-When using the DRAgent front server, additional tools can be defined in `workflow.yaml` under `tool_names` and resolved by NAT at startup. This is primarily used for connecting to remote agents via A2A. See [Agent2Agent](./agent2agent.md).
+When using the DRAgent front server, tools listed in `workflow.yaml` under `tool_names` are resolved by the NeMo (NAT) builder at startup (workflow tools, MCP function groups, A2A clients, and NAT `functions`). Under **NAT as the agent framework** (`per_user_tool_calling_agent`), this YAML wiring is the primary way tools are exposed; LangGraph and other frameworks still use `workflow.yaml` for DRAgent-side workflow tools and MCP in addition to framework-native tools. See [Agent2Agent](./agent2agent.md).
 
 ### Custom local tools
 
-To add custom tools directly in the agent, create tool functions in the `agent/agent/` directory using your framework's tool API and pass them into the agent definition. For example, with LangGraph:
+**If you chose the [NAT](./frameworks/nat.md) framework:** read [NAT `workflow.yaml` requirements](./frameworks/nat.md#nat-workflowyaml-requirements-read-this-first) first. Do **not** use `_type: python_function` in `functions` for custom Python tools. Use `nat_tool` in `register.py`, a matching `functions.<name>` block with `_type` equal to that name, and include the name in `workflow.tool_names`. Every `nat_tool` name must appear in YAML or you will see `Function '…' not found in list of functions`. Follow the [checklist](./frameworks/nat.md#checklist-every-custom-nat_tool-must-appear-in-functions-do-not-skip).
+
+For **LangGraph** (and similar code-first frameworks), add tool functions under `agent/agent/` and pass them into your graph or agents, for example:
 
 ```python
 from langchain_core.tools import tool
@@ -175,7 +178,7 @@ Agent configuration is managed by the `Config` class in `agent/config.py`, which
 
 Values set to `SET_VIA_PULUMI_OR_MANUALLY` are automatically replaced with field defaults at startup.
 
-For LLM configuration details, see [LLM configuration](../llm-configuration.md).
+For LLM configuration details, see [LLM component](../llm.md). To configure primary and fallback LLM providers, see [LLM provider fallback](./llm-fallback.md).
 
 ## Front servers
 
@@ -216,7 +219,7 @@ To enable DRAgent, set the following in your `.env` file:
 ENABLE_DRAGENT_SERVER=true
 ```
 
-When enabled locally, the Taskfile starts NAT with the `dragent_fastapi` front-end instead of DRUM. In deployed environments, the `ENABLE_DRAGENT_SERVER` runtime parameter is set automatically by the infrastructure.
+When enabled locally, the Taskfile runs `nat dragent serve` instead of DRUM and forwards CLI commands directly to `nat dragent run`/`query`. In deployed environments, the `ENABLE_DRAGENT_SERVER` runtime parameter is set automatically by the infrastructure.
 
 > [!NOTE]
 > DRAgent is experimental and currently under active development. Use at your own risk.
@@ -263,6 +266,7 @@ The following topics are covered in the official DataRobot documentation:
 | [Implement tracing](https://docs.datarobot.com/en/docs/agentic-ai/agentic-develop/agentic-tracing-code.html) | Add custom OpenTelemetry tracing to agent tools for monitoring and debugging deployed agents. |
 | [Deploy agentic tools](https://docs.datarobot.com/en/docs/agentic-ai/agentic-develop/agentic-tools.html) | Deploy global tools from the DataRobot Registry (search datasets, make predictions, render charts). |
 | [DataRobot agentic skills](https://docs.datarobot.com/en/docs/agentic-ai/agentic-develop/agentic-skills.html) | Install modular skill packages for coding agents (Cursor, Claude Code, Codex, and others). |
+| [A2A authentication](./agent2agent-auth.md) | DataRobot API key and Okta cross-application access (XAA) for agent-to-agent authentication. |
 | [Agent authentication](https://docs.datarobot.com/en/docs/agentic-ai/agentic-develop/agentic-authentication.html) | API tokens, OAuth 2.0, authorization context, and MCP server authentication. |
 | [Add Python packages](https://docs.datarobot.com/en/docs/agentic-ai/agentic-develop/agentic-python-packages.html) | Add dependencies via `uv`, runtime dependencies for fast iteration, and custom Docker images. |
 | [Access request headers](https://docs.datarobot.com/en/docs/agentic-ai/agentic-develop/agentic-request-headers.html) | Extract `X-Untrusted-*` headers in deployed agents for auth forwarding and request tracking. |

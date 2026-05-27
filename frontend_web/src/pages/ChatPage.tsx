@@ -1,8 +1,10 @@
 'use client';
-import React from 'react';
-import { useParams } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { v4 as uuid } from 'uuid';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useManufacturingAlert } from '@/api/manufacturing/hooks';
+import type { ManufacturingAlert } from '@/api/manufacturing/types';
 import {
   Chat,
   useChatScroll,
@@ -54,6 +56,10 @@ export interface ChatPageContentProps {
 }
 
 export function ChatImplementation({ chatId }: { chatId: string }) {
+  const [searchParams] = useSearchParams();
+  const alertId = searchParams.get('alertId') ?? undefined;
+  const { data: alert } = useManufacturingAlert(alertId);
+  const sentAlertPromptRef = useRef<string | null>(null);
   const {
     sendMessage,
     userInput,
@@ -64,6 +70,28 @@ export function ChatImplementation({ chatId }: { chatId: string }) {
     isLoadingHistory,
     isAgentRunning,
   } = useChatContext();
+
+  const alertPrompt = useMemo(() => {
+    if (!alert) {
+      return null;
+    }
+    return buildAlertChatPrompt(alert);
+  }, [alert]);
+
+  useEffect(() => {
+    if (
+      !alert ||
+      !alertPrompt ||
+      isLoadingHistory ||
+      isAgentRunning ||
+      sentAlertPromptRef.current === `${chatId}:${alert.id}`
+    ) {
+      return;
+    }
+
+    sentAlertPromptRef.current = `${chatId}:${alert.id}`;
+    void sendMessage(alertPrompt);
+  }, [alert, alertPrompt, chatId, isAgentRunning, isLoadingHistory, sendMessage]);
 
   const { scrollContainerRef, onChatScroll } = useChatScroll({
     chatId,
@@ -139,6 +167,28 @@ export function ChatImplementation({ chatId }: { chatId: string }) {
       />
     </Chat>
   );
+}
+
+function buildAlertChatPrompt(alert: ManufacturingAlert) {
+  const lines = [
+    '次の製造アラートについて、原因仮説、確認すべき工程データ、初動対応を整理してください。',
+    '',
+    `アラートID: ${alert.id}`,
+    `種別: ${alert.alertType}`,
+    `重要度: ${alert.severity}`,
+    `対象指標: ${alert.metric}`,
+    `日付: ${alert.date}`,
+    `タイトル: ${alert.title}`,
+    `説明: ${alert.description}`,
+    `実績: ${alert.actual}`,
+    alert.threshold !== null ? `しきい値: ${alert.threshold}` : null,
+    alert.controlLimit !== null ? `管理限界: ${alert.controlLimit}` : null,
+    alert.centerLine !== null ? `中心線: ${alert.centerLine}` : null,
+    `ルール: ${alert.ruleId} v${alert.ruleVersion}`,
+    alert.insight ? `既存考察: ${alert.insight}` : null,
+  ].filter(Boolean);
+
+  return lines.join('\n');
 }
 
 export const ChatPage: React.FC = () => {

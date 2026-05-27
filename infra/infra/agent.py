@@ -12,15 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-from pathlib import Path
 import re
 import shutil
-from typing import cast, Final, Optional, Any, Sequence
-import yaml  # type: ignore[import-untyped]
+from pathlib import Path
+from typing import Any, Final, Optional, Sequence, cast
 
 import datarobot as dr
 import pulumi
 import pulumi_datarobot
+import yaml  # type: ignore[import-untyped]
 from datarobot_pulumi_utils.pulumi import export, resolve_execution_environment_version
 from datarobot_pulumi_utils.pulumi.custom_model_deployment import CustomModelDeployment
 from datarobot_pulumi_utils.pulumi.stack import PROJECT_NAME
@@ -30,9 +30,7 @@ from datarobot_pulumi_utils.schema.custom_models import (
 )
 from datarobot_pulumi_utils.schema.exec_envs import RuntimeEnvironments
 
-
 from . import project_dir, use_case
-
 from .llm import custom_model_runtime_parameters as llm_custom_model_runtime_parameters
 
 DEFAULT_EXECUTION_ENVIRONMENT = "Python 3.11 GenAI Agents"
@@ -117,11 +115,33 @@ def _check_a2a_server_enabled() -> bool:
         return False
     with open(workflow_yaml_path) as f:
         workflow_config = yaml.safe_load(f) or {}
-    a2a = workflow_config.get("general", {}).get("front_end", {}).get("a2a")
+    a2a = ((workflow_config.get("general") or {}).get("front_end") or {}).get("a2a")
     return a2a is not None
 
 
 _is_a2a_server_enabled = _check_a2a_server_enabled()
+
+
+def _check_okta_xaa_credentials_needed() -> bool:
+    """Check if Okta XAA client credentials (PRINCIPAL_ID, PRIVATE_JWK) are needed.
+
+    These are required when the agent uses the okta_cross_app_access auth provider
+    to call remote XAA-protected agents. Server-side cross_application_access config
+    only advertises XAA requirements on the agent card and does not need these credentials.
+    """
+    workflow_yaml_path = project_dir.parent / "agent" / "agent" / "workflow.yaml"
+    if not workflow_yaml_path.exists():
+        return False
+    with open(workflow_yaml_path) as f:
+        workflow_config = yaml.safe_load(f) or {}
+    auth_section = workflow_config.get("authentication") or {}
+    return any(
+        isinstance(cfg, dict) and cfg.get("_type") == "okta_cross_app_access"
+        for cfg in auth_section.values()
+    )
+
+
+_is_okta_xaa_credentials_needed = _check_okta_xaa_credentials_needed()
 
 
 def _generate_metadata_yaml(
@@ -482,6 +502,7 @@ agent_runtime_parameter_values.extend(
     ]
 )
 
+
 # Handle session secret key credential
 SESSION_SECRET_KEY: Final[str] = "SESSION_SECRET_KEY"
 
@@ -513,6 +534,36 @@ if tavily_api_key := os.environ.get(TAVILY_API_KEY):
             value=tavily_api_key_cred.id,
         ),
     )
+
+# Handle Okta XAA credentials for A2A authentication
+if _is_okta_xaa_credentials_needed:
+    PRINCIPAL_ID_KEY: Final[str] = "PRINCIPAL_ID"
+    principal_id = os.environ.get(PRINCIPAL_ID_KEY, "")
+    if principal_id:
+        agent_runtime_parameter_values.append(
+            pulumi_datarobot.CustomModelRuntimeParameterValueArgs(
+                key=PRINCIPAL_ID_KEY,
+                type="string",
+                value=principal_id,
+            ),
+        )
+        pulumi.info(f"XAA configured with PRINCIPAL_ID: {principal_id}")
+
+    PRIVATE_JWK_KEY: Final[str] = "PRIVATE_JWK"
+    private_jwk = os.environ.get(PRIVATE_JWK_KEY)
+    if private_jwk:
+        private_jwk_cred = pulumi_datarobot.ApiTokenCredential(
+            agent_asset_name + " Private JWK",
+            args=pulumi_datarobot.ApiTokenCredentialArgs(api_token=str(private_jwk)),
+        )
+        agent_runtime_parameter_values.append(
+            pulumi_datarobot.CustomModelRuntimeParameterValueArgs(
+                type="credential",
+                key=PRIVATE_JWK_KEY,
+                value=private_jwk_cred.id,
+            ),
+        )
+        pulumi.info("XAA configured with PRIVATE_JWK credential")
 
 if _is_dragent_server_enabled:
     enable_dragent_server_runtime_param = (

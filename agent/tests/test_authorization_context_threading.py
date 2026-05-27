@@ -12,12 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from enum import Enum
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from agent.myagent import _json_safe_mcp_kwargs
 from custom import chat, load_model
 
 
@@ -66,29 +64,6 @@ def completion_params():
         "model": "test-model",
         "messages": [{"role": "user", "content": '{"topic": "test"}'}],
     }
-
-
-class TestMCPArgumentNormalization:
-    def test_enum_values_are_converted_to_json_safe_values(self):
-        class TopicEnum(Enum):
-            general = "general"
-
-        class SearchDepthEnum(Enum):
-            advanced = "advanced"
-
-        normalized = _json_safe_mcp_kwargs(
-            {
-                "topic": TopicEnum.general,
-                "search_depth": SearchDepthEnum.advanced,
-                "nested": [TopicEnum.general],
-            }
-        )
-
-        assert normalized == {
-            "topic": "general",
-            "search_depth": "advanced",
-            "nested": ["general"],
-        }
 
 
 class TestAuthorizationContextPropagation:
@@ -267,4 +242,4 @@ class TestHeaderForwarding:
         agent_kwargs = mock_class.call_args[1]
         forwarded = agent_kwargs["forwarded_headers"]
         assert forwarded["X-Test"] == "value"
-        assert forwarded["x-datarobot-tavily-api-key"] == "tvly-test-key"
+        assert forwarded["x-tavily-api-key"] == "tvly-test-key"

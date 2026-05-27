@@ -39,9 +39,19 @@ class TestCustomModel:
         thread_pool_executor.shutdown()
 
     @patch("agent.myagent.MyAgent")
-    @patch.dict(os.environ, {"LLM_DEPLOYMENT_ID": "TEST_VALUE"}, clear=True)
+    @patch.dict(
+        os.environ,
+        {"LLM_DEPLOYMENT_ID": "TEST_VALUE", "MEM0_API_KEY": "some_key"},
+        clear=True,
+    )
     @pytest.mark.parametrize("stream", [False, True])
-    def test_chat(self, mock_agent, mock_agent_response, stream, load_model_result):
+    def test_chat(
+        self,
+        mock_agent,
+        mock_agent_response,
+        stream,
+        load_model_result,
+    ):
         from custom import chat
 
         # Setup mocks
@@ -76,6 +86,37 @@ class TestCustomModel:
                         {
                             "delta": {
                                 "content": "agent result",
+                                "function_call": None,
+                                "refusal": None,
+                                "role": "assistant",
+                                "tool_calls": None,
+                            },
+                            "finish_reason": None,
+                            "index": 0,
+                            "logprobs": None,
+                        },
+                    ],
+                    "created": ANY,
+                    "event": ANY,
+                    "id": ANY,
+                    "model": "test-model",
+                    "object": "chat.completion.chunk",
+                    "pipeline_interactions": None,
+                    "service_tier": None,
+                    "system_fingerprint": None,
+                    "usage": {
+                        "completion_tokens": 1,
+                        "completion_tokens_details": None,
+                        "prompt_tokens": 2,
+                        "prompt_tokens_details": None,
+                        "total_tokens": 3,
+                    },
+                },
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "content": "",
                                 "function_call": None,
                                 "refusal": None,
                                 "role": "assistant",
@@ -172,12 +213,13 @@ class TestCustomModel:
             }
             assert actual == expected
 
-        # Verify mocks were called correctly (NAT uses noop MCP factory in the wrapper; tools are not passed via __init__)
+        # Verify mocks were called correctly
         mock_agent.assert_called_once_with(
+            forwarded_headers=kwargs["headers"],
             verbose=True,
             timeout=90,
-            forwarded_headers=ANY,
         )
+
         assert mock_agent_instance.invoke.called
         assert mock_agent_instance.invoke.call_args[0][0].messages == [
             UserMessage(
@@ -191,7 +233,11 @@ class TestCustomModel:
 
     @patch("agent.myagent.MyAgent")
     @patch.dict(os.environ, {"LLM_DEPLOYMENT_ID": "TEST_VALUE"}, clear=True)
-    def test_chat_streaming(self, mock_agent, load_model_result):
+    def test_chat_streaming(
+        self,
+        mock_agent,
+        load_model_result,
+    ):
         from custom import chat
 
         # Create a generator that yields AG-UI event streaming responses
@@ -264,8 +310,8 @@ class TestCustomModel:
         # Collect all chunks
         chunks = list(response)
 
-        # Should have 3 chunks (2 with content + 1 final)
-        assert len(chunks) == 3
+        # Should have 4 chunks (2 with content + 1 RUN_FINISHED carrier + 1 final)
+        assert len(chunks) == 4
 
         # First chunk with content
         chunk1 = json.loads(chunks[0].model_dump_json())
@@ -279,18 +325,24 @@ class TestCustomModel:
         assert chunk2["choices"][0]["delta"]["content"] == "chunk2"
         assert chunk2["choices"][0]["finish_reason"] is None
 
+        # RUN_FINISHED carrier chunk (no content, AG-UI event attached)
+        run_finished_chunk = json.loads(chunks[2].model_dump_json())
+        assert run_finished_chunk["choices"][0]["delta"]["content"] == ""
+        assert run_finished_chunk["choices"][0]["finish_reason"] is None
+        assert run_finished_chunk["event"]["type"] == "RUN_FINISHED"
+
         # Final chunk
-        final_chunk = json.loads(chunks[2].model_dump_json())
+        final_chunk = json.loads(chunks[3].model_dump_json())
         assert final_chunk["choices"][0]["delta"]["content"] is None
         assert final_chunk["choices"][0]["finish_reason"] == "stop"
         assert final_chunk["pipeline_interactions"] == "interactions"
         assert final_chunk["usage"]["total_tokens"] == 5
 
-        # Verify mocks were called correctly (NAT uses noop MCP factory in the wrapper; tools are not passed via __init__)
+        # Verify mocks were called correctly
         mock_agent.assert_called_once_with(
+            forwarded_headers=kwargs["headers"],
             verbose=True,
             timeout=90,
-            forwarded_headers=ANY,
         )
         assert mock_agent_instance.invoke.called
         assert mock_agent_instance.invoke.call_args[0][0].messages == [

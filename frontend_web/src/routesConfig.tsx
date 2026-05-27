@@ -5,6 +5,7 @@ import { SettingsLayout } from './pages/SettingsLayout';
 import { ChatPage } from './pages/ChatPage';
 import { EmptyStatePage } from './pages/EmptyState.tsx';
 import { MainLayout } from './pages/MainLayoutWithChatList';
+import { DashboardPage } from './pages/DashboardPage';
 
 const OAuthCallback = lazy(() => import('./pages/OAuthCallback'));
 
@@ -13,6 +14,9 @@ export const appRoutes = [
   {
     element: <MainLayout />,
     children: [
+      { index: true, element: <Navigate to={PATHS.DASHBOARD} replace /> },
+      { path: PATHS.DASHBOARD, element: <DashboardPage /> },
+      { path: PATHS.DASHBOARD_ALERT, element: <DashboardPage /> },
       { path: PATHS.CHAT_EMPTY, element: <EmptyStatePage /> },
       { path: PATHS.CHAT, element: <ChatPage /> },
       {
@@ -20,7 +24,7 @@ export const appRoutes = [
         element: <SettingsLayout />,
         children: [{ path: 'sources', element: <Navigate to={PATHS.SETTINGS.ROOT} replace /> }],
       },
-      { path: '*', element: <Navigate to={PATHS.CHAT_EMPTY} replace /> },
+      { path: '*', element: <Navigate to={PATHS.DASHBOARD} replace /> },
     ],
   },
 ];

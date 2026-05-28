@@ -138,7 +138,7 @@ class ManufacturingDashboard(ManufacturingBaseModel):
     range: ManufacturingRange
     summary: ManufacturingSummary
     series: list[ManufacturingDailyRecord]
-    rbar_chart: RbarChart
+    rbar_chart: RbarChart | None = None
     rbar_charts: dict[MetricName, RbarChart]
     alerts: list[ManufacturingAlert]
 

@@ -130,7 +130,7 @@ class ManufacturingDashboardService:
                 ),
             ),
             series=sorted_series,
-            rbar_chart=rbar_charts["coater_temperature"],
+            rbar_chart=rbar_charts.get("coater_temperature"),
             rbar_charts=rbar_charts,
             alerts=alerts,
         )

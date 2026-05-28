@@ -500,6 +500,21 @@ def test_run_detectors_distinguishes_default_from_empty_detector_list() -> None:
 
 
 @pytest.mark.anyio
+async def test_dashboard_service_accepts_empty_detector_list() -> None:
+    service = ManufacturingDashboardService(
+        prediction_client=StaticPredictionClient(probability=0.1),
+        insight_service=InsightService(),
+        detectors=[],
+    )
+
+    dashboard = await service.build_dashboard(stable_series(days=3))
+
+    assert dashboard.alerts == []
+    assert dashboard.rbar_chart is None
+    assert dashboard.rbar_charts == {}
+
+
+@pytest.mark.anyio
 async def test_dashboard_service_accepts_additional_business_rule_detectors() -> None:
     series = stable_series(days=3)
     series[-1].bleedout_rate = 0.07

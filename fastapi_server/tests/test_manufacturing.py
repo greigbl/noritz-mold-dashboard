@@ -390,9 +390,7 @@ async def test_prediction_alert_created_when_probability_exceeds_threshold() -> 
 
 
 @pytest.mark.anyio
-async def test_dashboard_predicts_each_lot_and_uses_daily_max_probability(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_dashboard_predicts_each_lot_and_uses_daily_max_probability() -> None:
     rows = build_fallback_csv_rows(days=1)
     rows[-1]["ロット番号"] = "SC20260427-0274"
     rows[-1]["塗布長"] = "1500m"

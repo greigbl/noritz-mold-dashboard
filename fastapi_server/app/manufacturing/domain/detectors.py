@@ -123,7 +123,8 @@ def run_detectors(
     alerts: list[ManufacturingAlert] = []
     rbar_charts: dict[MetricName, RbarChart] = {}
 
-    for detector in detectors or build_default_detectors():
+    active_detectors = build_default_detectors() if detectors is None else detectors
+    for detector in active_detectors:
         result = detector.detect(series, context)
         alerts.extend(result.alerts)
         rbar_charts.update(result.rbar_charts)

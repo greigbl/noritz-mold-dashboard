@@ -482,6 +482,25 @@ def test_registered_detectors_run_without_service_changes() -> None:
     assert "coater_temperature" in rbar_charts
 
 
+def test_run_detectors_distinguishes_default_from_empty_detector_list() -> None:
+    series = stable_series(days=3)
+
+    default_alerts, default_rbar_charts = run_detectors(
+        series,
+        DetectorContext(predictions=[]),
+    )
+    empty_alerts, empty_rbar_charts = run_detectors(
+        series,
+        DetectorContext(predictions=[]),
+        [],
+    )
+
+    assert default_alerts == []
+    assert "coater_temperature" in default_rbar_charts
+    assert empty_alerts == []
+    assert empty_rbar_charts == {}
+
+
 @pytest.mark.anyio
 async def test_dashboard_service_accepts_additional_business_rule_detectors() -> None:
     series = stable_series(days=3)

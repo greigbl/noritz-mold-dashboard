@@ -26,6 +26,7 @@ from app.manufacturing.application.ports import (
 from app.manufacturing.domain.detectors import (
     DetectorContext,
     ManufacturingDetector,
+    build_default_detectors,
     run_detectors,
 )
 from app.manufacturing.domain.models import (
@@ -50,7 +51,9 @@ class ManufacturingDashboardService:
         self.prediction_client = prediction_client
         self.insight_service = insight_service
         self.data_source = data_source
-        self.detectors = list(detectors) if detectors is not None else []
+        self.detectors = (
+            list(detectors) if detectors is not None else build_default_detectors()
+        )
         self._alerts_by_id: dict[str, ManufacturingAlert] = {}
         self._last_dashboard: ManufacturingDashboard | None = None
         self._prediction_task: asyncio.Task[list[PredictionResult]] | None = None

@@ -18,7 +18,7 @@ from operator import attrgetter
 from statistics import mean
 from typing import Protocol
 
-from app.manufacturing.models import (
+from app.manufacturing.domain.models import (
     ManufacturingAlert,
     ManufacturingDailyRecord,
     MetricName,

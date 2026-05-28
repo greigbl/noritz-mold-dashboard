@@ -17,12 +17,13 @@ import csv
 import io
 import logging
 import os
-from typing import Any, Protocol, cast
+from typing import Any, cast
 from urllib.parse import urljoin
 
 import httpx
 
-from app.manufacturing.models import (
+from app.manufacturing.application.ports import PredictionClient
+from app.manufacturing.domain.models import (
     ManufacturingDailyRecord,
     PredictionResult,
     PredictionStatus,
@@ -57,14 +58,6 @@ PREDICTION_FEATURE_COLUMNS = [
 ]
 
 logger = logging.getLogger(__name__)
-
-
-class PredictionClient(Protocol):
-    status: PredictionStatus
-
-    async def predict(
-        self, series: list[ManufacturingDailyRecord]
-    ) -> list[PredictionResult]: ...
 
 
 class LocalManufacturingPredictionClient:

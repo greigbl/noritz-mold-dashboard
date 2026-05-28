@@ -16,18 +16,17 @@ import asyncio
 import csv
 import io
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api.v1 import manufacturing as manufacturing_api
-from app.manufacturing import service as manufacturing_service
-from app.manufacturing.data_loader import (
-    aggregate_daily_records,
-    build_fallback_csv_rows,
-    build_lot_prediction_records,
+from app.manufacturing.application.dashboard_service import (
+    ManufacturingDashboardService,
 )
-from app.manufacturing.detectors import (
+from app.manufacturing.application.ports import ManufacturingDataSet
+from app.manufacturing.domain.detectors import (
     DetectorContext,
     DetectorResult,
     ManufacturingDetector,
@@ -35,15 +34,20 @@ from app.manufacturing.detectors import (
     detect_spc_rbar_alerts,
     run_detectors,
 )
-from app.manufacturing.insight_service import InsightService
-from app.manufacturing.models import (
+from app.manufacturing.domain.models import (
     ManufacturingAlert,
     ManufacturingDailyRecord,
     ManufacturingDashboard,
     PredictionResult,
     PredictionStatus,
 )
-from app.manufacturing.prediction_client import (
+from app.manufacturing.infrastructure.csv_data_source import (
+    aggregate_daily_records,
+    build_fallback_csv_rows,
+    build_lot_prediction_records,
+)
+from app.manufacturing.infrastructure.insight_service import InsightService
+from app.manufacturing.infrastructure.prediction_client import (
     PREDICTION_FEATURE_COLUMNS,
     LocalManufacturingPredictionClient,
     build_prediction_csv,
@@ -51,7 +55,6 @@ from app.manufacturing.prediction_client import (
     parse_prediction_csv_response,
     record_to_prediction_payload,
 )
-from app.manufacturing.service import ManufacturingDashboardService
 
 
 def make_daily_record(
@@ -139,6 +142,17 @@ class LotAwarePredictionClient:
         ]
 
 
+class StaticManufacturingDataSource:
+    def __init__(self, rows: list[dict[str, str]]) -> None:
+        self.rows = rows
+
+    def load(self) -> ManufacturingDataSet:
+        return ManufacturingDataSet(
+            source_series=aggregate_daily_records(self.rows),
+            prediction_series=build_lot_prediction_records(self.rows),
+        )
+
+
 class CountingInsightService(InsightService):
     def __init__(self) -> None:
         super().__init__()
@@ -195,6 +209,26 @@ def stable_series(days: int = 12) -> list[ManufacturingDailyRecord]:
     return [make_daily_record(start + timedelta(days=index)) for index in range(days)]
 
 
+def test_manufacturing_layers_follow_clean_architecture_boundaries() -> None:
+    manufacturing_root = Path(__file__).parents[1] / "app" / "manufacturing"
+
+    assert (manufacturing_root / "domain").is_dir()
+    assert (manufacturing_root / "application").is_dir()
+    assert (manufacturing_root / "infrastructure").is_dir()
+
+    domain_text = "\n".join(
+        path.read_text() for path in (manufacturing_root / "domain").glob("*.py")
+    )
+    application_text = "\n".join(
+        path.read_text() for path in (manufacturing_root / "application").glob("*.py")
+    )
+
+    assert "app.manufacturing.application" not in domain_text
+    assert "app.manufacturing.infrastructure" not in domain_text
+    assert "app.manufacturing.infrastructure" not in application_text
+    assert "app.manufacturing.composition" not in application_text
+
+
 def test_get_manufacturing_dashboard(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -204,6 +238,8 @@ def test_get_manufacturing_dashboard(
         "_manufacturing_service",
         ManufacturingDashboardService(
             prediction_client=LocalManufacturingPredictionClient(),
+            insight_service=InsightService(),
+            data_source=StaticManufacturingDataSource(build_fallback_csv_rows()),
         ),
     )
 
@@ -364,10 +400,10 @@ async def test_dashboard_predicts_each_lot_and_uses_daily_max_probability(
     rows[-1]["ランプ点灯時間"] = "3581"
     rows[-1]["ブリードアウト"] = "TRUE"
     prediction_client = LotAwarePredictionClient({"SC20260427-0274": 0.91})
-    monkeypatch.setattr(manufacturing_service, "load_csv_rows", lambda: rows)
     service = ManufacturingDashboardService(
         prediction_client=prediction_client,
         insight_service=InsightService(),
+        data_source=StaticManufacturingDataSource(rows),
     )
 
     dashboard = await service.build_dashboard()

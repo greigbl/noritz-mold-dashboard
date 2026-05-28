@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import yaml
 
 from agent import MyAgent
 from agent.myagent import custompy_adaptor, noop_mcp_tools_context
@@ -95,3 +96,15 @@ class TestMyAgentNat:
             "アラートと勝手に判断せずに、predict_realtimeを実行してください"
             in workflow_text
         )
+
+    def test_search_agent_includes_nat_wikipedia_tool(self) -> None:
+        workflow_path = Path(__file__).parents[1] / "agent" / "workflow.yaml"
+        workflow = yaml.safe_load(workflow_path.read_text())
+
+        assert workflow["functions"]["wikipedia_search"] == {
+            "_type": "wiki_search",
+            "max_results": 3,
+        }
+        assert "wikipedia_search" in workflow["functions"]["search_agent"]["tool_names"]
+        assert "wikipedia_search" not in workflow["workflow"]["tool_names"]
+        assert "Wikipedia" in workflow["functions"]["search_agent"]["system_prompt"]

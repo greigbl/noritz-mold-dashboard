@@ -20,9 +20,10 @@ from datetime import date, timedelta
 from pathlib import Path
 from statistics import mean
 
-from app.manufacturing.models import ManufacturingDailyRecord
+from app.manufacturing.application.ports import ManufacturingDataSet
+from app.manufacturing.domain.models import ManufacturingDailyRecord
 
-SYNTHETIC_CSV_PATH = Path(__file__).parent / "data" / "synthetic_manufacturing.csv"
+SYNTHETIC_CSV_PATH = Path(__file__).parents[1] / "data" / "synthetic_manufacturing.csv"
 LEGACY_CSV_PATH = Path(
     "/Users/ryosuke.hata/Documents/デモデータ/ブリードアウト/"
     "コーティング製品ブリードアウトmain_train.csv"
@@ -33,6 +34,15 @@ SYNTHETIC_END_DATE = date(2026, 4, 27)
 LOTS_PER_SYNTHETIC_DAY = 250
 
 CsvManufacturingRow = dict[str, str]
+
+
+class CsvManufacturingDataSource:
+    def load(self) -> ManufacturingDataSet:
+        csv_rows = load_csv_rows()
+        return ManufacturingDataSet(
+            source_series=aggregate_daily_records(csv_rows),
+            prediction_series=build_lot_prediction_records(csv_rows),
+        )
 
 
 def get_csv_path() -> Path:

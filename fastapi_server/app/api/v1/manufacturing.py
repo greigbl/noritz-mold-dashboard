@@ -14,11 +14,14 @@
 
 from fastapi import APIRouter, HTTPException
 
-from app.manufacturing.models import ManufacturingAlert, ManufacturingDashboard
-from app.manufacturing.service import ManufacturingDashboardService
+from app.manufacturing.application.dashboard_service import (
+    ManufacturingDashboardService,
+)
+from app.manufacturing.composition import create_manufacturing_dashboard_service
+from app.manufacturing.domain.models import ManufacturingAlert, ManufacturingDashboard
 
 manufacturing_router = APIRouter(prefix="/manufacturing", tags=["Manufacturing"])
-_manufacturing_service = ManufacturingDashboardService()
+_manufacturing_service = create_manufacturing_dashboard_service()
 
 
 def get_manufacturing_service() -> ManufacturingDashboardService:

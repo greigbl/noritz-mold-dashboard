@@ -14,21 +14,22 @@
 
 import asyncio
 import hashlib
+import json
 from collections.abc import Sequence
 
-from app.manufacturing.data_loader import (
-    aggregate_daily_records,
-    build_lot_prediction_records,
-    load_csv_rows,
+from app.manufacturing.application.ports import (
+    InsightGenerator,
+    ManufacturingDataSet,
+    ManufacturingDataSource,
+    PredictionClient,
 )
-from app.manufacturing.detectors import (
+from app.manufacturing.domain.detectors import (
     DetectorContext,
     ManufacturingDetector,
     build_default_detectors,
     run_detectors,
 )
-from app.manufacturing.insight_service import InsightService
-from app.manufacturing.models import (
+from app.manufacturing.domain.models import (
     ManufacturingAlert,
     ManufacturingDailyRecord,
     ManufacturingDashboard,
@@ -37,24 +38,19 @@ from app.manufacturing.models import (
     PredictionResult,
     PredictionStatus,
 )
-from app.manufacturing.prediction_client import (
-    PredictionClient,
-    build_prediction_csv,
-    create_prediction_client_from_env,
-)
 
 
 class ManufacturingDashboardService:
     def __init__(
         self,
-        prediction_client: PredictionClient | None = None,
-        insight_service: InsightService | None = None,
+        prediction_client: PredictionClient,
+        insight_service: InsightGenerator,
+        data_source: ManufacturingDataSource | None = None,
         detectors: Sequence[ManufacturingDetector] | None = None,
     ) -> None:
-        self.prediction_client = (
-            prediction_client or create_prediction_client_from_env()
-        )
-        self.insight_service = insight_service or InsightService()
+        self.prediction_client = prediction_client
+        self.insight_service = insight_service
+        self.data_source = data_source
         self.detectors = (
             list(detectors) if detectors is not None else build_default_detectors()
         )
@@ -69,21 +65,22 @@ class ManufacturingDashboardService:
         self,
         series: list[ManufacturingDailyRecord] | None = None,
     ) -> ManufacturingDashboard:
-        prediction_series: list[ManufacturingDailyRecord]
         if series is None:
-            csv_rows = load_csv_rows()
-            source_series = aggregate_daily_records(csv_rows)
-            prediction_series = build_lot_prediction_records(csv_rows)
+            if self.data_source is None:
+                raise ValueError("Manufacturing data source is not configured.")
+            data_set = self.data_source.load()
         else:
-            source_series = series
-            prediction_series = series
+            data_set = ManufacturingDataSet(
+                source_series=series,
+                prediction_series=series,
+            )
 
         sorted_series = sorted(
-            source_series,
+            data_set.source_series,
             key=lambda record: record.date,
         )
         sorted_prediction_series = sorted(
-            prediction_series,
+            data_set.prediction_series,
             key=lambda record: (record.date, record.lot_id or ""),
         )
         if not sorted_series:
@@ -133,7 +130,7 @@ class ManufacturingDashboardService:
                 ),
             ),
             series=sorted_series,
-            rbar_chart=rbar_charts["coater_temperature"],
+            rbar_chart=rbar_charts.get("coater_temperature"),
             rbar_charts=rbar_charts,
             alerts=alerts,
         )
@@ -200,6 +197,19 @@ class ManufacturingDashboardService:
 
 
 def build_prediction_job_key(series: list[ManufacturingDailyRecord]) -> str:
-    csv_payload = build_prediction_csv(series)
-    digest = hashlib.sha256(csv_payload.encode("utf-8")).hexdigest()
+    payload = [
+        record.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude={"alert_ids", "prediction_probability", "prediction_label"},
+        )
+        for record in series
+    ]
+    serialized_payload = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(serialized_payload.encode("utf-8")).hexdigest()
     return f"{len(series)}:{digest}"

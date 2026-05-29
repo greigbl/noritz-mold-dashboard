@@ -15,7 +15,7 @@
 import csv
 from pathlib import Path
 
-from app.manufacturing.data_loader import (
+from app.manufacturing.infrastructure.csv_data_source import (
     SYNTHETIC_CSV_PATH,
     build_fallback_csv_rows,
 )

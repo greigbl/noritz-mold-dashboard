@@ -106,7 +106,7 @@ export type ManufacturingDashboard = {
   range: ManufacturingRange;
   summary: ManufacturingSummary;
   series: ManufacturingDailyRecord[];
-  rbarChart: RbarChart;
+  rbarChart: RbarChart | null;
   rbarCharts: Partial<Record<ManufacturingMetric, RbarChart>>;
   alerts: ManufacturingAlert[];
 };

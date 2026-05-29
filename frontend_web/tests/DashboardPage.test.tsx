@@ -196,6 +196,32 @@ describe('DashboardPage', () => {
     expect(screen.getByRole('img', { name: 'UV照度 日内レンジ Rbar管理図' })).toBeInTheDocument();
   });
 
+  it('renders dashboard when Rbar chart data is unavailable', async () => {
+    server.use(
+      http.get('*/api/v1/manufacturing/dashboard', () =>
+        HttpResponse.json({
+          ...dashboardResponse,
+          summary: {
+            ...dashboardResponse.summary,
+            alertCount: 0,
+            businessRuleAlertCount: 0,
+            criticalAlertCount: 0,
+          },
+          series: dashboardResponse.series.map(record => ({ ...record, alertIds: [] })),
+          rbarChart: null,
+          rbarCharts: {},
+          alerts: [],
+        })
+      )
+    );
+
+    renderDashboard();
+
+    expect(await screen.findByText('製造ダッシュボード')).toBeInTheDocument();
+    expect(screen.getByText('Rbar管理図データなし')).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: /Rbar管理図/ })).not.toBeInTheDocument();
+  });
+
   it('navigates to chat with the alert id when an alert is clicked', async () => {
     server.use(
       http.get('*/api/v1/manufacturing/dashboard', () => HttpResponse.json(dashboardResponse))

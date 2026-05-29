@@ -235,10 +235,49 @@ function RbarControlChart({
   selectedMetric,
   onMetricChange,
 }: {
-  chart: RbarChart;
+  chart: RbarChart | null;
   selectedMetric: ManufacturingMetric;
   onMetricChange: (metric: ManufacturingMetric) => void;
 }) {
+  if (!chart) {
+    return (
+      <Card className="rounded-md">
+        <CardHeader className="pb-2">
+          <div className="flex flex-col gap-3">
+            <CardTitle className="flex items-center gap-2">
+              <LineChart className="size-5" />
+              {metricLabels[selectedMetric]} 日内レンジ Rbar管理図
+            </CardTitle>
+            <div className="flex flex-wrap gap-1" aria-label="Rbar metric selector">
+              {rbarMetricOptions.map(metric => (
+                <Button
+                  key={metric}
+                  type="button"
+                  size="sm"
+                  variant={selectedMetric === metric ? 'primary' : 'secondary'}
+                  aria-pressed={selectedMetric === metric}
+                  onClick={() => onMetricChange(metric)}
+                  className="h-7 rounded-sm px-2 text-xs"
+                >
+                  {metricLabels[metric]}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Alert className="rounded-md">
+            <AlertCircle />
+            <AlertTitle>Rbar管理図データなし</AlertTitle>
+            <AlertDescription>
+              現在の判定ルールでは管理図データが生成されていません。
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
+
   const plotValues = chart.points
     .map(point => point.value)
     .concat([chart.ucl, chart.centerLine, chart.lcl]);

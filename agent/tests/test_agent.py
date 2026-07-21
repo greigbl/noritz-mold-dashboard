@@ -23,6 +23,15 @@ from agent.myagent import custompy_adaptor, noop_mcp_tools_context
 
 
 class TestMyAgentNat:
+    def test_custom_model_uses_current_telemetry_instrumentation_api(self) -> None:
+        custom_model_source = (Path(__file__).parents[1] / "custom.py").read_text()
+
+        assert (
+            "from datarobot_genai.core.telemetry.agent import instrument"
+            in custom_model_source
+        )
+        assert "instrument()" in custom_model_source
+
     def test_myagent_is_nat_agent_subclass(self) -> None:
         from datarobot_genai.nat.agent import NatAgent
 

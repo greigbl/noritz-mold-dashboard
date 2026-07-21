@@ -15,9 +15,9 @@
 # THIS SECTION OF CODE IS REQUIRED TO SETUP TRACING AND TELEMETRY FOR THE AGENTS.
 # REMOVING THIS CODE WILL DISABLE ALL MONITORING, TRACING AND TELEMETRY.
 # isort: off
-from datarobot_genai.core.telemetry_agent import instrument
+from datarobot_genai.core.telemetry.agent import instrument
 
-instrument(framework="nat")
+instrument()
 
 # ruff: noqa: E402
 from agent import Config, custompy_adaptor

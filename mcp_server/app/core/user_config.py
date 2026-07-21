@@ -12,44 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Optional
+from typing import Optional
 
-from datarobot_genai.drmcp import (
-    RUNTIME_PARAM_ENV_VAR_NAME_PREFIX,
-    extract_datarobot_runtime_param_payload,
-)
-from pydantic import AliasChoices, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from datarobot.core.config import DataRobotAppFrameworkBaseSettings
 
 
-class UserAppConfig(BaseSettings):
-    """User-specific application configuration."""
+class UserAppConfig(DataRobotAppFrameworkBaseSettings):
+    """User-specific application configuration.
 
-    # Example of adding user-specific configuration
-    user_name: str = Field(
-        default="default-user",
-        validation_alias=AliasChoices(
-            RUNTIME_PARAM_ENV_VAR_NAME_PREFIX + "USER_NAME",
-            "USER_NAME",
-        ),
-        description="Name of the user being used",
-    )
+    Supports environment variables, .env files, and DataRobot Runtime Parameters.
+    """
 
-    @field_validator(
-        "user_name",
-        mode="before",
-    )
-    @classmethod
-    def validate_user_runtime_params(cls, v: Any) -> Any:
-        """Validate user runtime parameters."""
-        return extract_datarobot_runtime_param_payload(v)
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        case_sensitive=False,
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    user_name: str = "default-user"
 
 
 # Global configuration instance

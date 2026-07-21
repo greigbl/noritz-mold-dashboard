@@ -82,8 +82,9 @@ class TestLoadAndSaveMCPItemMetadata:
 
         assert result.exit_code == 0
 
-        (coroutine_func,) = mock_asyncio_run.call_args.args
-        assert coroutine_func.__name__ == "run_load_and_save_mcp_item_metadata"
+        (coroutine,) = mock_asyncio_run.call_args.args
+        assert coroutine.__name__ == "run_load_and_save_mcp_item_metadata"
+        coroutine.close()
 
     @pytest.mark.asyncio
     async def test_run_load_and_save_mcp_item_metadata(

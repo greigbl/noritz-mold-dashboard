@@ -12,6 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from agent.config import Config
+from app.core.user_config import UserAppConfig
 
-__all__ = ["Config"]
+
+def test_runtime_parameter_payload_sets_user_name(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("USER_NAME", raising=False)
+    monkeypatch.setenv(
+        "MLOPS_RUNTIME_PARAM_USER_NAME",
+        '{"type": "string", "payload": "runtime-parameter-user"}',
+    )
+
+    config = UserAppConfig()
+
+    assert config.user_name == "runtime-parameter-user"

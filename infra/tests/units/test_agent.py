@@ -468,8 +468,8 @@ def test_custom_model_created(monkeypatch):
 
     runtime_parameter_values = kwargs["runtime_parameter_values"]
 
-    # Should have 6 params: 1 SESSION_SECRET_KEY + 5 DRUM params
-    assert len(runtime_parameter_values) == 6
+    # Should have 7 params: 1 SESSION_SECRET_KEY + 5 DRUM params + DRAgent
+    assert len(runtime_parameter_values) == 7
 
     # Find the SESSION_SECRET_KEY parameter
     session_secret_param = next(
@@ -478,6 +478,14 @@ def test_custom_model_created(monkeypatch):
     assert session_secret_param is not None
     assert session_secret_param.type == "credential"
     assert session_secret_param.value is not None
+
+    dragent_param = next(
+        (p for p in runtime_parameter_values if p.key == "ENABLE_DRAGENT_SERVER"),
+        None,
+    )
+    assert dragent_param is not None
+    assert dragent_param.type == "boolean"
+    assert dragent_param.value == "true"
 
     memory_ttl_param = next(
         (p for p in runtime_parameter_values if p.key == AGENT_MEMORY_TTL_SECONDS),

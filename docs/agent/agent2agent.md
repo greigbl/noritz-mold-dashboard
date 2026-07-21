@@ -1,16 +1,18 @@
 # Agent-to-Agent (A2A)
 
-Template agents can expose themselves as A2A servers and connect to remote agents via the agent-to-agent protocol. For authentication configuration, see [A2A Authentication](./agent2agent-auth.md).
+Template agents can expose themselves as A2A servers and connect to remote agents via the agent-to-agent protocol.
+
+For authentication configuration, see [A2A Authentication](./agent2agent-auth.md).
 
 To expose an agent via A2A:
 
 - Ensure the template has a `general.front_end.a2a` configuration block. Templates include this by default.
-- Run the agent with the experimental DRAgent front server: set `ENABLE_DRAGENT_SERVER=true` in your `.env` file.
+- Run the Agent normally; DRAgent is the configured front server and publishes the A2A endpoints.
 
 To connect an agent to a remote agent via A2A:
 
 - Uncomment the `function_groups` and `workflow.tool_names` blocks in `workflow.yaml`.
-- Run the agent with the experimental DRAgent front server: set `ENABLE_DRAGENT_SERVER=true` in your `.env` file.
+- Configure the remote URL and authentication provider, then restart DRAgent.
 
 Enable the **ENABLE_RUNTIME_PARAMETERS_IMPROVEMENTS** feature flag in DataRobot to use environment variables in `workflow.yaml` files.
 

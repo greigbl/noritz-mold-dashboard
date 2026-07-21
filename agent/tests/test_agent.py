@@ -13,98 +13,145 @@
 # limitations under the License.
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
 
-from agent import MyAgent
-from agent.myagent import custompy_adaptor, noop_mcp_tools_context
+
+def test_nat_plugin_registration_imports() -> None:
+    import agent.register  # noqa: F401
 
 
-class TestMyAgentNat:
-    def test_myagent_is_nat_agent_subclass(self) -> None:
-        from datarobot_genai.nat.agent import NatAgent
+def test_dragent_mcp_client_forwards_tavily_runtime_credential(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datarobot_genai.dragent.plugins.datarobot_mcp_client import (
+        DataRobotMCPStreamableHTTPClient,
+    )
 
-        assert issubclass(MyAgent, NatAgent)
+    import agent.register  # noqa: F401
 
-    def test_init_uses_default_workflow_path(self) -> None:
-        agent = MyAgent()
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-key")
 
-        assert (
-            agent.workflow_path == Path(__file__).parents[1] / "agent" / "workflow.yaml"
-        )
+    client = DataRobotMCPStreamableHTTPClient("http://localhost:9000/mcp")
 
-    @pytest.mark.asyncio
-    async def test_noop_mcp_tools_context_returns_empty_tools(self) -> None:
-        async with noop_mcp_tools_context(MagicMock()) as tools:
-            assert tools == []
+    assert client.custom_headers["x-tavily-api-key"] == "tvly-test-key"
+    assert client.custom_headers["x-datarobot-tavily-api-key"] == "tvly-test-key"
 
-    @pytest.mark.asyncio
-    @patch("agent.myagent.Config")
-    @patch("agent.myagent.MCPConfig")
-    @patch("agent.myagent.agent_chat_completion_wrapper", new_callable=AsyncMock)
-    @patch("agent.myagent.MyAgent")
-    async def test_custompy_adaptor_uses_nat_agent(
-        self,
-        mock_agent: MagicMock,
-        mock_wrapper: AsyncMock,
-        mock_mcp_config: MagicMock,
-        mock_config: MagicMock,
+
+def test_tavily_registration_uses_public_custom_headers_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import agent.register as register
+
+    class PublicHeadersOnlyClient:
+        custom_headers: dict[str, str]
+
+    def initialize_public_headers(
+        client: PublicHeadersOnlyClient, *args: object, **kwargs: object
     ) -> None:
-        mock_mcp_config.return_value.server_config = None
-        mock_config.return_value.tavily_api_key = None
-        completion_create_params = {
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "hi"}],
-            "forwarded_headers": {},
-            "authorization_context": {},
-        }
+        client.custom_headers = {}
 
-        await custompy_adaptor(completion_create_params)
+    monkeypatch.setattr(
+        register, "_original_mcp_client_init", initialize_public_headers
+    )
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-public-api-key")
+    client = PublicHeadersOnlyClient()
 
-        mock_agent.assert_called_once()
-        assert mock_agent.call_args.kwargs["forwarded_headers"] == {}
-        mock_wrapper.assert_awaited_once()
+    register._init_mcp_client_with_tavily_header(client)  # type: ignore[arg-type]
 
-    def test_datarobot_mcp_client_gets_tavily_header(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from datarobot_genai.nat.datarobot_mcp_client import (
-            DataRobotMCPStreamableHTTPClient,
-        )
+    assert client.custom_headers == {
+        "x-tavily-api-key": "tvly-public-api-key",
+        "x-datarobot-tavily-api-key": "tvly-public-api-key",
+    }
 
-        monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-key")
 
-        client = DataRobotMCPStreamableHTTPClient("http://localhost:9000/mcp")
+def test_workflow_preserves_quality_alert_and_prediction_branches() -> None:
+    workflow_text = (Path(__file__).parents[1] / "workflow.yaml").read_text()
 
-        assert client._custom_headers["x-tavily-api-key"] == "tvly-test-key"
-        assert client._custom_headers["x-datarobot-tavily-api-key"] == "tvly-test-key"
+    assert "実行モード: search_only" in workflow_text
+    assert "種別: spc_rbar" in workflow_text
+    assert "種別: business_rule" in workflow_text
+    assert "predict_realtime を呼び出してはいけません" in workflow_text
+    assert "search_agent を1回だけ呼んでください" in workflow_text
+    assert "通常の製造条件入力の場合は" in workflow_text
+    assert "predict_realtimeを実行してください" in workflow_text
 
-    def test_workflow_branches_business_alerts_to_search_only(self) -> None:
-        workflow_text = (
-            Path(__file__).parents[1] / "agent" / "workflow.yaml"
-        ).read_text()
 
-        assert "実行モード: search_only" in workflow_text
-        assert "種別: spc_rbar" in workflow_text
-        assert "種別: business_rule" in workflow_text
-        assert "predict_realtime を呼び出してはいけません" in workflow_text
-        assert "search_agent を1回だけ呼んでください" in workflow_text
-        assert "通常の製造条件入力の場合は" in workflow_text
-        assert (
-            "アラートと勝手に判断せずに、predict_realtimeを実行してください"
-            in workflow_text
-        )
+def test_search_agent_keeps_wikipedia_and_mcp_tools() -> None:
+    workflow = yaml.safe_load((Path(__file__).parents[1] / "workflow.yaml").read_text())
 
-    def test_search_agent_includes_nat_wikipedia_tool(self) -> None:
-        workflow_path = Path(__file__).parents[1] / "agent" / "workflow.yaml"
-        workflow = yaml.safe_load(workflow_path.read_text())
+    assert workflow["functions"]["wikipedia_search"] == {
+        "_type": "wiki_search",
+        "max_results": 3,
+    }
+    assert "wikipedia_search" in workflow["functions"]["search_agent"]["tool_names"]
+    assert workflow["function_groups"]["mcp_tools"]["_type"] == "datarobot_mcp_client"
 
-        assert workflow["functions"]["wikipedia_search"] == {
-            "_type": "wiki_search",
-            "max_results": 3,
-        }
-        assert "wikipedia_search" in workflow["functions"]["search_agent"]["tool_names"]
-        assert "wikipedia_search" not in workflow["workflow"]["tool_names"]
-        assert "Wikipedia" in workflow["functions"]["search_agent"]["system_prompt"]
+
+def test_taskfile_runs_nat_through_dragent() -> None:
+    taskfile_text = (Path(__file__).parents[1] / "Taskfile.yml").read_text()
+
+    assert "nat dragent serve --config_file workflow.yaml" in taskfile_text
+    assert (
+        'DRAGENT_CONFIG_FILE="${DRAGENT_CONFIG_FILE:-workflow.yaml}"' in taskfile_text
+    )
+
+
+def test_documentation_matches_nat_dragent_only_runtime() -> None:
+    repository_root = Path(__file__).parents[2]
+    agent_instructions = (repository_root / "agent" / "AGENTS.md").read_text()
+    agent_readme = (repository_root / "docs" / "agent" / "README.md").read_text()
+    nat_guide = (
+        repository_root / "docs" / "agent" / "frameworks" / "nat.md"
+    ).read_text()
+    evaluation_guide = (
+        repository_root / "docs" / "agent" / "evaluation.md"
+    ).read_text()
+    evaluation_example = (
+        repository_root
+        / ".skills"
+        / "datarobot-app-framework-agent-local-evaluation"
+        / "examples"
+        / "test_agent_eval.py"
+    ).read_text()
+    evaluation_skill = (
+        repository_root
+        / ".skills"
+        / "datarobot-app-framework-agent-local-evaluation"
+        / "SKILL.md"
+    ).read_text()
+    debugging_guide = (repository_root / "docs" / "agent" / "debugging.md").read_text()
+    a2a_guide = (repository_root / "docs" / "agent" / "agent2agent.md").read_text()
+    vscode_launch = (repository_root / ".vscode" / "launch.json").read_text()
+    pycharm_launch = (
+        repository_root / ".idea" / "runConfigurations" / "Run_Agent.xml"
+    ).read_text()
+    changelog = (repository_root / "CHANGELOG.md").read_text()
+
+    for removed_reference in ("MyAgent", "custompy_adaptor", "LangGraph"):
+        assert removed_reference not in agent_instructions
+    for removed_reference in ("`custom.py`", "`dev.py`", "DRUM", "experimental"):
+        assert removed_reference not in agent_readme
+    for removed_reference in ("`myagent.py`", "`MyAgent`"):
+        assert removed_reference not in nat_guide
+    for evaluation_document in (
+        evaluation_guide,
+        evaluation_example,
+        evaluation_skill,
+    ):
+        assert "agent.myagent" not in evaluation_document
+        assert "custompy_adaptor" not in evaluation_document
+        assert "execute_dragent_inline_async" in evaluation_document
+    compile(evaluation_example, "test_agent_eval.py", "exec")
+    for current_runtime_document in (debugging_guide, a2a_guide):
+        assert "ENABLE_DRAGENT_SERVER" not in current_runtime_document
+        assert "DRUM" not in current_runtime_document
+    for launch_configuration in (vscode_launch, pycharm_launch):
+        assert "agent/dev.py" not in launch_configuration
+        assert "dragent" in launch_configuration
+
+    unreleased = changelog.split("## 11.9.2", maxsplit=1)[0]
+    assert "0.26.1" in unreleased
+    assert "DRAgent" in unreleased
+    assert "DRUM" in unreleased

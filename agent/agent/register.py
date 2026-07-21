@@ -11,57 +11,32 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""NAT custom tool registration and workflow plugins.
 
-Register tools with a **module-level call** after the function is defined::
+"""Runtime registrations required by the NAT workflow."""
 
-    nat_tool(my_function, "my_function")
-
-Do **not** use ``@nat_tool()`` as a decorator with no arguments; that raises
-``TypeError: nat_tool() missing 2 required positional arguments: 'fn' and 'name'``.
-
-Each tool name must also appear under ``functions`` in ``workflow.yaml`` and in
-``workflow.tool_names``. See ``docs/agent/frameworks/nat.md``.
-
-Framework-specific NAT plugins are loaded from datarobot-genai and NAT
-entrypoints. When Mem0 is enabled, memory registration lives in
-``agent.register_memory`` so it can be shared by every workflow template.
-"""
-
+import os
 from typing import Any
 
+from datarobot_genai.core.telemetry.agent import instrument
+from datarobot_genai.dragent.plugins.datarobot_mcp_client import (
+    DataRobotMCPStreamableHTTPClient,
+)
 
-def _patch_datarobot_mcp_tavily_headers() -> None:
-    """Forward the Tavily credential through NAT's DataRobot MCP client.
-
-    datarobot_mcp_client currently exposes MCPServerConfig.custom_headers, but
-    its DataRobot streamable HTTP wrapper does not pass those headers to the
-    underlying MCP client for the default shared session. The native Tavily MCP
-    tools require a Tavily API key header, so inject it when the client is
-    created. The x-datarobot-* variant survives DataRobot directAccess header
-    filtering in deployed MCP calls.
-    """
-    from datarobot_genai.nat.datarobot_mcp_client import (  # noqa: PLC0415
-        DataRobotMCPStreamableHTTPClient,
-    )
-
-    if getattr(DataRobotMCPStreamableHTTPClient, "_tavily_header_patch", False):
-        return
-
-    original_init = DataRobotMCPStreamableHTTPClient.__init__
-
-    def patched_init(self: Any, *args: Any, **kwargs: Any) -> None:
-        original_init(self, *args, **kwargs)
-
-        from agent.config import Config  # noqa: PLC0415
-
-        tavily_api_key = Config().tavily_api_key
-        if tavily_api_key:
-            self._custom_headers["x-tavily-api-key"] = tavily_api_key
-            self._custom_headers["x-datarobot-tavily-api-key"] = tavily_api_key
-
-    DataRobotMCPStreamableHTTPClient.__init__ = patched_init  # type: ignore[method-assign]
-    DataRobotMCPStreamableHTTPClient._tavily_header_patch = True
+_original_mcp_client_init = DataRobotMCPStreamableHTTPClient.__init__
 
 
-_patch_datarobot_mcp_tavily_headers()
+def _init_mcp_client_with_tavily_header(
+    self: DataRobotMCPStreamableHTTPClient, *args: Any, **kwargs: Any
+) -> None:
+    """Forward the optional agent runtime credential to the MCP server."""
+    _original_mcp_client_init(self, *args, **kwargs)
+    if tavily_api_key := os.getenv("TAVILY_API_KEY"):
+        self.custom_headers.setdefault("x-tavily-api-key", tavily_api_key)
+        self.custom_headers.setdefault("x-datarobot-tavily-api-key", tavily_api_key)
+
+
+if not getattr(DataRobotMCPStreamableHTTPClient, "_tavily_header_registered", False):
+    DataRobotMCPStreamableHTTPClient.__init__ = _init_mcp_client_with_tavily_header  # type: ignore[method-assign]
+    DataRobotMCPStreamableHTTPClient._tavily_header_registered = True
+
+instrument()

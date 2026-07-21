@@ -1,143 +1,107 @@
 # Agent Development Instructions
 
+This project uses a NAT (NVIDIA NeMo Agent Toolkit) workflow served exclusively by DRAgent.
+The runtime is declarative: orchestration, LLMs, sub-agents, and MCP tools are configured in
+`workflow.yaml`. Python startup registrations belong in `agent/register.py`.
 
-## Dependencies Installation
+## Dependencies
 
-The following command should be run after agent code modification:
-
-```shell
-dr task run agent:install
-```
-
-> **Warning:** When using a custom Docker context (`DATAROBOT_DEFAULT_EXECUTION_ENVIRONMENT` is unset and an `agent/docker_context/` folder is present), modifying `pyproject.toml` or `uv.lock` triggers a full execution environment rebuild on the next deployment. This rebuild can take **10–20 minutes** depending on the number of dependencies. When using the default DataRobot execution environment (the default configuration), dependency changes do not trigger a rebuild.
-
-## Agent Structure
-
-Agent must be implemented in the following location withing the `agent/agent` directory. None of the other files outside of this directory are related.
-
-For detailed documentation, see [docs/agent/README.md](../docs/agent/README.md).
-
-
-
-Agent must implement the following components:
-
-### 1. Class Definition
-
-`MyAgent` is generated using `datarobot_agent_class_from_langgraph` with a graph factory and prompt template:
-
-```python
-from datarobot_genai.langgraph.agent import datarobot_agent_class_from_langgraph
-
-MyAgent = datarobot_agent_class_from_langgraph(graph_factory, prompt_template)
-```
-
-**Important**: `MyAgent` class should NOT be renamed!
-
-### 2. Prompt Template
-
-Define a `ChatPromptTemplate` that structures user input:
-
-```python
-prompt_template = ChatPromptTemplate.from_messages([
-    ("system", "You are a helpful assistant. Chat history: {chat_history}"),
-    ("user", "The topic is {topic}."),
-])
-```
-
-### 3. Graph Factory
-
-Define a function that receives an LLM, tools, and verbosity flag, and returns a `StateGraph`:
-
-```python
-def graph_factory(llm, tools, verbose=False):
-    planner = create_agent(llm, tools=tools,
-        system_prompt=make_system_prompt("You are a content planner. ..."),
-        name="planner_agent", debug=verbose)
-    writer = create_agent(llm, tools=tools,
-        system_prompt=make_system_prompt("You are a content writer. ..."),
-        name="writer_agent", debug=verbose)
-
-    def planner_to_writer_relay(state: MessagesState) -> MessagesState:
-        last = state["messages"][-1]
-        if isinstance(last, AIMessage):
-            return {"messages": [HumanMessage(content=last.content)]}
-        return {"messages": []}
-
-    workflow = StateGraph(MessagesState)
-    workflow.add_node("planner_node", planner)
-    workflow.add_node("planner_to_writer_relay", planner_to_writer_relay)
-    workflow.add_node("writer_node", writer)
-    workflow.add_edge(START, "planner_node")
-    workflow.add_edge("planner_node", "planner_to_writer_relay")
-    workflow.add_edge("planner_to_writer_relay", "writer_node")
-    workflow.add_edge("writer_node", END)
-    return workflow
-```
-
-**IMPORTANT**: Use `create_agent` from `langchain.agents` to create agent nodes. Use `make_system_prompt()` from `datarobot_genai.core.agents` for consistent prompt formatting.
-
-### 4. LLM Resolution
-
-The LLM is resolved via `get_llm()` from `datarobot_genai.langgraph.llm` in `custompy_adaptor`:
-
-```python
-from datarobot_genai.langgraph.llm import get_llm
-
-agent = MyAgent(
-    llm=get_llm(model_name=model_name),
-    ...
-)
-```
-
-**CRITICAL**: Do NOT instantiate LLMs directly. Always use `get_llm()` which handles DataRobot LLM Gateway integration, deployed models, and external LLM providers. To add primary/fallback provider support, use `get_router_llm()` instead — see [LLM provider fallback](../docs/agent/llm-fallback.md).
-
-### 5. Agent tools
-
-**IMPORTANT**: Add required tools in the `agent/agent` directory. Do not add/modify any files outside of this directory. If some of the tools require adding new packages, they should be added to the pyproject.toml and properly installed using command
+After changing Agent Python code or dependencies, run:
 
 ```shell
 dr task run agent:install
 ```
 
-**IMPORTANT**: Tools must be imported and passed to agent nodes inside `graph_factory`.
+When a custom Docker context is present, dependency changes can trigger a full execution
+environment rebuild during deployment.
 
-For detailed LangGraph documentation, see [docs/agent/frameworks/langgraph.md](../docs/agent/frameworks/langgraph.md).
+## File structure
 
-## Agent Testing
+```text
+agent/
+├── agent/
+│   ├── __init__.py       # Package exports
+│   ├── config.py         # Runtime configuration
+│   └── register.py       # NAT plugin startup registrations and instrumentation
+├── tests/                # Agent tests
+├── workflow.yaml         # DRAgent/NAT workflow definition
+├── pyproject.toml        # Dependencies and nat.plugins entry point
+└── Taskfile.yml          # Install, lint, test, serve, and CLI tasks
+```
 
-Review and update the tests in the `agent/tests` directory after code changes were made to the agent.
-Run the following shell commands to run the tests:
+The `nat.plugins` entry point in `pyproject.toml` loads `agent.register` when NAT starts.
+Do not add a second front server or a parallel agent entry point.
+
+## Workflow configuration
+
+`workflow.yaml` must define these sections as needed:
+
+- `general.front_end`: the `dragent_fastapi` server and optional A2A metadata.
+- `functions`: NAT functions and sub-agents.
+- `function_groups`: MCP and optional remote A2A clients.
+- `authentication`: authentication providers used by function groups.
+- `llms`: DataRobot LLM components or routers.
+- `workflow`: the top-level NAT workflow and its `tool_names`.
+
+Every name in `workflow.tool_names` must be declared under `functions` or
+`function_groups`. Keep all orchestration and routing rules in `workflow.yaml`.
+
+## MCP tools
+
+The MCP server is an independent service. Connect through the NAT function group:
+
+```yaml
+function_groups:
+  mcp_tools:
+    _type: datarobot_mcp_client
+```
+
+Add `mcp_tools` to the relevant workflow's `tool_names`. Do not import implementation code
+from `mcp_server/` into the Agent package.
+
+## Custom NAT tools
+
+Register custom Python tools from `agent/register.py` using `nat_tool`, then add a matching
+entry under `functions` and include the name in `workflow.tool_names`. Use
+`typing.Annotated` to describe tool parameters. See
+[`docs/agent/frameworks/nat.md`](../docs/agent/frameworks/nat.md) for a complete example.
+
+## Testing
+
+When an Agent behavior changes, add or update tests under `agent/tests` first. Run:
 
 ```shell
 dr task run agent:lint
-```
-
-```shell
 dr task run agent:test
 ```
 
-## Post Deployment Validation
-
-Run the following shell command to validate the agent after deployment. If the response has no errors then the deployment is successful.
+Validate the NAT configuration directly when editing `workflow.yaml`:
 
 ```shell
-task agent:cli -- execute-deployment --user_prompt "Agent specific prompt to validate that it's working" --deployment_id <deployment_id>
+uv run nat validate --config_file workflow.yaml
 ```
 
-## Setting up custom metric and report values
+## Local execution
 
-Refer to [Custom metrics](../docs/agent/custom-metrics.md) page for how to set up and report values to custom metrics.
+Start the DRAgent server:
 
-## Migrations
+```shell
+dr run agent:dev
+```
 
-### 11.8.8 — New agent format (class-based → factory-based)
+Run the workflow in-process:
 
-Starting with agent component version 11.8.8 ([af-component-agent#474](https://github.com/datarobot-community/af-component-agent/pull/474)), agent templates (except `base`) no longer require defining agents within a `MyAgent` class. Agents are now defined using native framework primitives at module level and converted to `MyAgent` via a helper function (`datarobot_agent_class_from_*`). The LLM is also decoupled from the agent class and injected via `get_llm()`.
+```shell
+dr task run agent:cli -- -- execute --user_prompt "Agent-specific prompt"
+```
 
-If you are upgrading an existing agent from a version prior to 11.8.8, follow the migration guide for your framework:
+Validate a deployed Agent:
 
-- [LangGraph migration](../docs/agent/frameworks/migration-to-11.8.8-langgraph.md)
-- [CrewAI migration](../docs/agent/frameworks/migration-to-11.8.8-crewai.md)
-- [LlamaIndex migration](../docs/agent/frameworks/migration-to-11.8.8-llamaindex.md)
-- [Base agent migration](../docs/agent/frameworks/migration-to-11.8.8-base.md)
-- [NAT agent migration](../docs/agent/frameworks/migration-to-11.8.8-nat.md)
+```shell
+dr task run agent:cli -- -- execute-deployment \
+  --user_prompt "Agent-specific prompt" \
+  --deployment_id <deployment_id>
+```
+
+The deployment is successful only when the command returns an Agent response without an
+error.

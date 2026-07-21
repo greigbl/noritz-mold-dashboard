@@ -8,7 +8,17 @@
             "name": "Python Debugger: Agent",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/agent/dev.py",
+            "program": "${workspaceFolder}/agent/.venv/bin/nat",
+            "args": [
+                "dragent",
+                "serve",
+                "--config_file",
+                "workflow.yaml",
+                "--reload",
+                "false",
+                "--port",
+                "8842"
+            ],
             "console": "integratedTerminal",
             "envFile": "${workspaceFolder}/.env",
             "python": "${workspaceFolder}/agent/.venv/bin/python",

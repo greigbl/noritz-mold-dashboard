@@ -189,4 +189,4 @@ Tests that mock `ChatLiteLLM`, test the `llm()` method, or instantiate `MyAgent`
 
 ## Complete before/after
 
-See the [full diff](https://github.com/datarobot-community/af-component-agent/pull/474) and the [LangGraph agent documentation](./frameworks/langgraph.md) for the complete new layout.
+See the [full diff](https://github.com/datarobot-community/af-component-agent/pull/474) and the [LangGraph agent documentation](./langgraph.md) for the complete new layout.

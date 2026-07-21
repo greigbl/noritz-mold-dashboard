@@ -121,4 +121,4 @@ Key differences:
 
 ## Complete before/after
 
-See the [full diff](https://github.com/datarobot-community/af-component-agent/pull/474) and the [base agent documentation](./frameworks/base.md) for the complete new layout.
+See the [full diff](https://github.com/datarobot-community/af-component-agent/pull/474) and the [base agent documentation](./base.md) for the complete new layout.

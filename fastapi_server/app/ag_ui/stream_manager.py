@@ -22,7 +22,6 @@ from uuid import UUID
 from ag_ui.core import BaseEvent, RunAgentInput
 
 from app.ag_ui.base import AGUIAgent
-from app.ag_ui.dr import DataRobotAGUIAgent
 from app.ag_ui.dragent import DRAgentAGUIAgent
 from app.ag_ui.storage import AGUIAgentWithStorage
 from app.chats import ChatRepository
@@ -94,10 +93,7 @@ def create_storage_dr_agent(
     user_id: UUID,
     headers: Dict[str, str],
 ) -> AGUIAgent:
-    if config.enable_dragent_server:
-        dr_agui: AGUIAgent = DRAgentAGUIAgent(name, config, headers)
-    else:
-        dr_agui = DataRobotAGUIAgent(name, config, headers)
+    dr_agui: AGUIAgent = DRAgentAGUIAgent(name, config, headers)
 
     storage = AGUIAgentWithStorage(
         name=name,

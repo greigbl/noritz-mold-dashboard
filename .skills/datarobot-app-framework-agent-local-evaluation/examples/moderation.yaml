@@ -1,7 +1,7 @@
 ---
 # moderation.yaml
 #
-# Place this file at the root of the agent directory (alongside custom.py).
+# Place this file at the root of the agent directory (alongside workflow.yaml).
 #
 # Replace every <YOUR_JUDGE_LLM_DEPLOYMENT_ID> with a real 24-character
 # DataRobot deployment ID before running tests.
@@ -9,7 +9,8 @@
 # Required environment variables (add to .env or export before pytest):
 #   DATAROBOT_ENDPOINT  — e.g. https://app.datarobot.com/api/v2
 #   DATAROBOT_API_TOKEN — your DataRobot API token
-#   TARGET_NAME         — output field of your deployment response (e.g. resultText)
+#
+# TARGET_NAME is unnecessary when tests pass aggregated assistant text directly.
 #
 # Choose the guards that match your use case and remove the rest.
 

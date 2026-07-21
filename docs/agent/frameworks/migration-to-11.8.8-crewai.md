@@ -211,4 +211,4 @@ Key differences:
 
 ## Complete before/after
 
-See the [full diff](https://github.com/datarobot-community/af-component-agent/pull/474) and the [CrewAI agent documentation](./frameworks/crewai.md) for the complete new layout.
+See the [full diff](https://github.com/datarobot-community/af-component-agent/pull/474) and the [CrewAI agent documentation](./crewai.md) for the complete new layout.

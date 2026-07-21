@@ -1,220 +1,127 @@
-# Debugging agents
+# Debugging the NAT Agent
 
-This guide covers how to debug agent code during local development using the CLI, VS Code, and PyCharm. For the official DataRobot debugging documentation, see [Debug agents in VS Code](https://docs.datarobot.com/en/docs/agentic-ai/agentic-develop/agentic-debugging-vscode.html) and [Debug agents in PyCharm](https://docs.datarobot.com/en/docs/agentic-ai/agentic-develop/agentic-debugging-pycharm.html).
+The local Agent runs on DRAgent. NAT loads `agent/workflow.yaml` and imports
+`agent.register` through the `nat.plugins` entry point.
 
 ## Prerequisites
 
-- Completed `dr start` (creates `.env` and the agent virtual environment).
-- `.env` file with `DATAROBOT_API_TOKEN` and `DATAROBOT_ENDPOINT` configured.
-- Dependencies installed: `dr task run agent:install`.
+- Run `dr start` so the project `.env` and virtual environment exist.
+- Configure `DATAROBOT_API_TOKEN`, `DATAROBOT_ENDPOINT`, and required LLM/MCP values.
+- Install dependencies with `dr task run agent:install`.
 
-## Development server
+## Validate configuration
 
-All debugging approaches require the agent development server. The server is a local DRUM instance that loads your agent code and serves it on an HTTP endpoint (default port `8842`).
+Before debugging execution, validate the workflow schema:
 
-The entry point is `agent/dev.py`, which starts a `PredictionServer` with `targetType: agenticworkflow`. The server reads `.env` for configuration and loads hooks from `agent/custom.py`.
-
-### Start manually
-
-Start the server in one terminal and keep it running:
-
-```sh
-dr task run agent:dev
+```shell
+cd agent
+uv run nat validate --config_file workflow.yaml
 ```
 
-Then send requests from a second terminal using the CLI.
+## Run locally
 
-### DRAgent mode
+Start the DRAgent server:
 
-When `ENABLE_DRAGENT_SERVER=true` is set, the development server runs `nat dragent serve` instead of DRUM. The Taskfile forwards CLI commands directly to `nat dragent run` or `nat dragent query`.
-
-## Testing with the CLI
-
-The agent CLI (`agent/cli.py`) provides commands for testing against both local and deployed agents.
-
-### Local execution
-
-Submit a prompt to a running local development server:
-
-```sh
-task agent:cli -- execute --user_prompt "Artificial Intelligence"
+```shell
+dr run agent:dev
 ```
 
-With a structured JSON prompt:
+The default address is `http://localhost:8842`. The Taskfile runs:
 
-```sh
-task agent:cli -- execute --user_prompt '{"topic": "Generative AI"}'
+```shell
+nat dragent serve --config_file workflow.yaml --reload true --port 8842
 ```
 
-With streaming enabled:
+For a single in-process execution, no server is needed:
 
-```sh
-task agent:cli -- execute --user_prompt "Artificial Intelligence" --stream
+```shell
+task agent:cli -- execute --user_prompt "Your prompt"
 ```
 
-Auto-start the dev server for a single test (starts and stops automatically):
+Query a deployment:
 
-```sh
-task agent:cli START_DEV=1 -- execute --user_prompt "Artificial Intelligence"
+```shell
+task agent:cli -- execute-deployment \
+  --user_prompt "Your prompt" \
+  --deployment_id <deployment_id>
 ```
 
-With a prompt from a text file:
+## VS Code
 
-```sh
-task agent:cli -- execute --file "example-prompt.txt"
+The repository launch configuration starts the NAT console script under `debugpy` with
+these arguments:
+
+```text
+dragent serve --config_file workflow.yaml --reload false --port 8842
 ```
 
-### DRAgent execution
+1. Select `agent/.venv/bin/python` as the interpreter.
+2. Put breakpoints in `agent/agent/register.py`, custom tool modules, or the installed
+   `datarobot_genai`/`nat` code.
+3. Select **Python Debugger: Agent** and press **F5**.
+4. Send a request from another terminal.
 
-When `ENABLE_DRAGENT_SERVER=true`, `execute` runs the workflow directly in-process via `nat dragent run` without needing a running server:
+`justMyCode` is disabled so framework code can also be inspected. Auto-reload is disabled
+for debugger stability; restart the launch configuration after code changes.
 
-```sh
-task agent:cli -- execute --user_prompt "Artificial Intelligence"
-task agent:cli -- execute --file "example-prompt.txt"
-```
+## PyCharm
 
-### Deployed agent execution
+The **Run Agent** configuration executes `agent/.venv/bin/nat` from the `agent/` working
+directory with the same DRAgent arguments.
 
-Query a deployed agent:
+1. Select `agent/.venv/bin/python` as the project interpreter.
+2. Add breakpoints in registration or tool code.
+3. Start **Run Agent** with the debugger.
+4. Send a CLI or HTTP request after the server is ready.
 
-```sh
-task agent:cli -- execute-deployment --user_prompt "Artificial Intelligence" --deployment_id DEPLOYMENT_ID
-```
+## Logging
 
-### CLI options
+Set the NAT log level before starting the server:
 
-| Flag | Description |
-|---|---|
-| `--user_prompt` | Text or JSON prompt to send. |
-| `--completion_json` | Path to a JSON file with full chat completion params. Not supported with dragent mode. |
-| `--file` | Path to a text file whose contents are used as the prompt. Dragent mode only. |
-| `--stream` | Enable streaming response. Not supported with dragent mode. |
-| `--show_output` | Display full response inline. Not supported with dragent mode. |
-| `--deployment_id` | Target a deployed agent instead of local. |
-
-## Debugging in VS Code
-
-This repository includes a pre-configured launch configuration in `.vscode/launch.json`.
-
-### Setup
-
-1. Open the repository in VS Code.
-2. Ensure the Python extension is installed.
-3. Select the agent interpreter: press `Cmd+Shift+P` (macOS) or `Ctrl+Shift+P`, run **Python: Select Interpreter**, and choose `agent/.venv/bin/python`.
-
-### Launch configuration
-
-The included `.vscode/launch.json` is already configured:
-
-```json
-{
-    "name": "Python Debugger: Agent",
-    "type": "debugpy",
-    "request": "launch",
-    "program": "${workspaceFolder}/agent/dev.py",
-    "console": "integratedTerminal",
-    "envFile": "${workspaceFolder}/.env",
-    "python": "${workspaceFolder}/agent/.venv/bin/python",
-    "justMyCode": false,
-    "cwd": "${workspaceFolder}/agent"
-}
-```
-
-### Debug workflow
-
-1. Set breakpoints in your agent code (e.g. `agent/agent/myagent.py`).
-2. Open the **Run and Debug** view and select **Python Debugger: Agent**.
-3. Press **F5** to start the development server under the debugger.
-4. Wait for the `Running development server on http://localhost:8842` message.
-5. In a separate terminal, run a CLI command:
-   ```sh
-   task agent:cli -- execute --user_prompt "Artificial Intelligence"
-   ```
-6. VS Code pauses at your breakpoints. Use the debug toolbar to step through code, inspect variables, and evaluate expressions.
-
-`justMyCode` is set to `false` so you can step into `datarobot_genai` and framework code when needed.
-
-## Debugging in PyCharm
-
-This repository includes a pre-configured **Run Agent** run/debug configuration in `.idea/runConfigurations/Run_Agent.xml`.
-
-### Setup
-
-1. Open the repository in PyCharm.
-2. Go to **Settings > Python > Interpreter** and select the agent virtual environment: `agent/.venv/bin/python`.
-
-### Debug workflow
-
-1. Set breakpoints in your agent code (e.g. `agent/agent/myagent.py`).
-2. Select **Run Agent** from the configuration dropdown.
-3. Click the **Debug** icon (or press **Shift+F9**).
-4. Wait for the development server to start.
-5. In a separate terminal, run:
-   ```sh
-   task agent:cli -- execute --user_prompt "Artificial Intelligence"
-   ```
-6. PyCharm pauses at your breakpoints. Use the **Threads & Variables** pane to inspect state and the **Evaluate Expression** dialog to test code in context.
-
-The **Run Agent** configuration points to `agent/dev.py`, sets the working directory to `agent/`, and loads environment variables from `.env`.
-
-## Enable verbose logging
-
-Set `verbose=True` when instantiating `MyAgent` to get detailed logging of agent execution, LLM calls, and tool invocations. In the template, verbosity is enabled by default in `custom.py`.
-
-You can also enable verbose mode via the CLI completion JSON by adding `"verbose": true` to the `extra_body` field.
-
-### NAT log level (DRAgent mode)
-
-When running in DRAgent mode (`ENABLE_DRAGENT_SERVER=true`), control NAT's log verbosity with the `NAT_LOG_LEVEL` environment variable:
-
-```sh
+```shell
 export NAT_LOG_LEVEL=DEBUG
-dr task run agent:dev
+dr run agent:dev
 ```
 
-Supported values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. Defaults to `INFO` if not set.
+Supported values are `DEBUG`, `INFO`, `WARNING`, `ERROR`, and `CRITICAL`.
+
+The workflow also has a `verbose` setting. Enable it temporarily when inspecting routing and
+tool selection, but avoid logging credentials or raw authorization headers.
 
 ## Common issues
 
-### Development server not starting
+### Configuration does not load
 
-**Symptom:** `task agent:dev` fails or the server doesn't respond.
+- Confirm the working directory is `agent/`.
+- Confirm `workflow.yaml` exists at the Agent component root.
+- Run `nat validate` and fix the first schema error.
 
-**Fix:** Verify `.env` exists with `DATAROBOT_API_TOKEN` and `DATAROBOT_ENDPOINT`. Re-run `dr task run agent:install` to ensure dependencies are up to date.
+### MCP tools are unavailable
 
-### Breakpoints not hit
+- Confirm `mcp_tools` is declared under `function_groups`.
+- Confirm it appears in the relevant `tool_names` list.
+- Check the MCP URL/deployment runtime parameter and authentication headers.
 
-**Symptom:** The CLI command completes but the debugger never pauses.
+### Breakpoints are not hit
 
-**Fix:**
-- Ensure you started the server in **Debug** mode, not regular Run.
-- Confirm the breakpoint is on a line that actually executes for your prompt.
-- Re-run the CLI command after the debugger is fully attached&mdash;the dev server handles one request at a time.
+- Disable auto-reload while debugging so the code stays in the debugger process.
+- Put breakpoints on code exercised by the selected routing branch.
+- Wait until the DRAgent server reports that it is ready before sending the request.
 
-### Import errors in `myagent.py`
+### Import error
 
-**Symptom:** Imports to files in the same directory fail silently in DRUM.
+- Confirm `agent/pyproject.toml` contains the `nat.plugins` entry point.
+- Re-run `dr task run agent:install` after changing package metadata.
+- Use imports rooted at the inner Agent package, such as `from agent.tools import tool_name`.
 
-**Fix:** Use relative imports (e.g. `from .tools import my_tool`) instead of package imports (e.g. `from agent.tools import my_tool`).
+### Empty or chunk-like output
 
-### Wrong Python interpreter
+Use the DRAgent CLI or `execute_dragent_inline_async` for aggregated results. Application
+clients should consume DRAgent events and render text deltas rather than stringifying event
+objects.
 
-**Symptom:** `ModuleNotFoundError` for `datarobot_genai` or framework packages.
+## Deployed Agent
 
-**Fix:** Ensure your IDE is using `agent/.venv/bin/python` and not a system Python. Re-run `dr task run agent:install` if the virtual environment was recreated.
-
-### Environment variables not loaded
-
-**Symptom:** Agent fails with missing `DATAROBOT_API_TOKEN`.
-
-**Fix:** Confirm `envFile` in VS Code or **Paths to ".env" files** in PyCharm points to the `.env` at the repository root.
-
-## Debugging deployed agents
-
-For agents deployed to DataRobot, you can:
-
-- **View logs**&mdash;on the deployment's **Activity log** tab, click **Logs** to see OpenTelemetry-format logs with level filtering and time-period selection.
-- **View traces**&mdash;on the **Service health** tab, click **Show tracing** to see end-to-end request traces including LLM calls, tool invocations, and agent actions.
-- **Test via CLI**&mdash;use `task agent:cli -- execute-deployment` to send test prompts to a deployed agent and inspect the response.
-
-For more on deployed agent observability, see the [DataRobot tracing documentation](https://docs.datarobot.com/en/docs/agentic-ai/agentic-develop/agentic-tracing-code.html).
+Use the deployment activity logs and tracing views to inspect LLM calls, tool invocations,
+and errors. Reproduce the prompt with `execute-deployment` before changing runtime
+parameters.

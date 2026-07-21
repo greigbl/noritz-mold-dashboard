@@ -6,7 +6,7 @@ The MCP server in this template is provided by the [DataRobot MCP AF Component](
 
 ## Testing against remote servers
 
-When testing locally, the MCP server connects to a local instance running at `http://localhost:9000` by default (see [Ports reference](../README.md#ports-reference) for all port information).
+When testing locally, the MCP server connects to a local instance running at `http://localhost:9000` by default. The repository root README lists all development ports.
 To modify the port, set the `MCP_SERVER_PORT` environment variable in your `.env` file.
 
 ## Google Drive and Tavily tools

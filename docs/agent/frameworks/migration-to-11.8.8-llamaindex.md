@@ -217,4 +217,4 @@ async def custompy_adaptor(completion_create_params, ...):
 
 ## Complete before/after
 
-See the [full diff](https://github.com/datarobot-community/af-component-agent/pull/474) and the [LlamaIndex agent documentation](./frameworks/llamaindex.md) for the complete new layout.
+See the [full diff](https://github.com/datarobot-community/af-component-agent/pull/474) and the [LlamaIndex agent documentation](./llamaindex.md) for the complete new layout.

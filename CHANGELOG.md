@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased Changes
 
+- Upgraded the Agent from `datarobot-genai` 0.15.56 and the MCP server from the
+  0.15.x line to `datarobot-genai` 0.26.1.
+- Migrated the NAT Agent to the current DRAgent-only runtime:
+  - Removed the legacy DRUM entry points and the obsolete `MyAgent`/`custompy_adaptor`
+    compatibility layer.
+  - Standardized local and deployed requests on the DRAgent workflow and
+    `/generate/stream` endpoint.
+  - Forwarded Tavily credentials to MCP through the public client headers API.
+- Updated Agent development, runtime, and local-evaluation documentation for the
+  `workflow.yaml` and `register.py` architecture.
+
 ## 11.9.2
 - Upgraded `agent` component from 11.9.0 to 11.9.2
   - Upgraded `datarobot-genai` from 0.15.47 to 0.15.53

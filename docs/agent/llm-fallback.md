@@ -5,12 +5,8 @@
 
 The agent component supports configuring primary and fallback LLM providers so that if the primary provider is unavailable or returns an error, the agent automatically retries using a fallback provider. This is powered by [litellm.Router](https://docs.litellm.ai/docs/routing) and requires `datarobot-genai>=0.15.20`.
 
-There are two integration paths depending on your front server:
-
-| Path | Front server | How to configure |
-|---|---|---|
-| [DRAgent (workflow.yaml)](#dragent-workflowyaml) | DRAgent | Replace `_type: datarobot-llm-component` with `_type: datarobot-llm-router` |
-| [DRUM (myagent.py)](#drum-myagentpy) | DRUM | Replace `get_llm()` with `get_router_llm()` |
+Configure fallback in the DRAgent `workflow.yaml` by replacing
+`_type: datarobot-llm-component` with `_type: datarobot-llm-router`.
 
 ### Determining the primary model
 
@@ -18,7 +14,7 @@ The examples below use `{LLM_DEFAULT_MODEL}` as a placeholder for the primary mo
 
 ---
 
-## DRAgent (workflow.yaml)
+## DRAgent (`workflow.yaml`)
 
 In `workflow.yaml`, replace the `datarobot-llm-component` block with `datarobot-llm-router` and define a `primary` and one or more `fallbacks`:
 
@@ -59,46 +55,6 @@ Each entry under `primary` and `fallbacks` is an `LLMConfig` with these fields:
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `num_retries` | `int` | `1` | Number of retries per model before moving to the next fallback. |
-
----
-
-## DRUM (myagent.py)
-
-When using the DRUM front server, replace `get_llm()` with `get_router_llm()` in `custompy_adaptor`.
-
-**Important:** `get_router_llm()` does **not** accept the same parameters as `get_llm()`. Do not carry over parameters from the original `get_llm()` call (e.g. `model_name`, `parameters`, `stream_options`). The third argument to `get_router_llm()` is a dict of **router-level fields only** (see [Router-level fields](#router-level-fields) above). Model configuration belongs in `LLMConfig`, not in the router options dict.
-
-```python
-from datarobot_genai.core.config import LLMConfig
-from datarobot_genai.langgraph.llm import get_router_llm  # or crewai / llama_index
-
-primary = LLMConfig(
-    use_datarobot_llm_gateway=True,
-    llm_default_model="{LLM_DEFAULT_MODEL}",
-)
-fallbacks = [
-    LLMConfig(
-        use_datarobot_llm_gateway=True,
-        llm_default_model="anthropic/claude-opus-4-20250514",
-    )
-]
-
-# In custompy_adaptor:
-# The third argument only accepts router-level fields: {"num_retries": int}
-# Do NOT pass get_llm() parameters like stream_options, model_name, or parameters here.
-agent = MyAgent(
-    llm=get_router_llm(primary, fallbacks, {"num_retries": 1}),
-    ...
-)
-```
-
-Import paths per framework:
-
-| Framework | Import |
-|---|---|
-| LangGraph | `from datarobot_genai.langgraph.llm import get_router_llm` |
-| CrewAI | `from datarobot_genai.crewai.llm import get_router_llm` |
-| LlamaIndex | `from datarobot_genai.llama_index.llm import get_router_llm` |
 
 ---
 

@@ -96,3 +96,62 @@ def test_taskfile_runs_nat_through_dragent() -> None:
     assert (
         'DRAGENT_CONFIG_FILE="${DRAGENT_CONFIG_FILE:-workflow.yaml}"' in taskfile_text
     )
+
+
+def test_documentation_matches_nat_dragent_only_runtime() -> None:
+    repository_root = Path(__file__).parents[2]
+    agent_instructions = (repository_root / "agent" / "AGENTS.md").read_text()
+    agent_readme = (repository_root / "docs" / "agent" / "README.md").read_text()
+    nat_guide = (
+        repository_root / "docs" / "agent" / "frameworks" / "nat.md"
+    ).read_text()
+    evaluation_guide = (
+        repository_root / "docs" / "agent" / "evaluation.md"
+    ).read_text()
+    evaluation_example = (
+        repository_root
+        / ".skills"
+        / "datarobot-app-framework-agent-local-evaluation"
+        / "examples"
+        / "test_agent_eval.py"
+    ).read_text()
+    evaluation_skill = (
+        repository_root
+        / ".skills"
+        / "datarobot-app-framework-agent-local-evaluation"
+        / "SKILL.md"
+    ).read_text()
+    debugging_guide = (repository_root / "docs" / "agent" / "debugging.md").read_text()
+    a2a_guide = (repository_root / "docs" / "agent" / "agent2agent.md").read_text()
+    vscode_launch = (repository_root / ".vscode" / "launch.json").read_text()
+    pycharm_launch = (
+        repository_root / ".idea" / "runConfigurations" / "Run_Agent.xml"
+    ).read_text()
+    changelog = (repository_root / "CHANGELOG.md").read_text()
+
+    for removed_reference in ("MyAgent", "custompy_adaptor", "LangGraph"):
+        assert removed_reference not in agent_instructions
+    for removed_reference in ("`custom.py`", "`dev.py`", "DRUM", "experimental"):
+        assert removed_reference not in agent_readme
+    for removed_reference in ("`myagent.py`", "`MyAgent`"):
+        assert removed_reference not in nat_guide
+    for evaluation_document in (
+        evaluation_guide,
+        evaluation_example,
+        evaluation_skill,
+    ):
+        assert "agent.myagent" not in evaluation_document
+        assert "custompy_adaptor" not in evaluation_document
+        assert "execute_dragent_inline_async" in evaluation_document
+    compile(evaluation_example, "test_agent_eval.py", "exec")
+    for current_runtime_document in (debugging_guide, a2a_guide):
+        assert "ENABLE_DRAGENT_SERVER" not in current_runtime_document
+        assert "DRUM" not in current_runtime_document
+    for launch_configuration in (vscode_launch, pycharm_launch):
+        assert "agent/dev.py" not in launch_configuration
+        assert "dragent" in launch_configuration
+
+    unreleased = changelog.split("## 11.9.2", maxsplit=1)[0]
+    assert "0.26.1" in unreleased
+    assert "DRAgent" in unreleased
+    assert "DRUM" in unreleased

@@ -50,6 +50,12 @@ def dragent_agui_agent_heartbeat(config: Config) -> Iterator[DRAgentAGUIAgent]:
     )
 
 
+def test_uses_current_dragent_workflow_stream_endpoint(config: Config) -> None:
+    agent = DRAgentAGUIAgent(_TEST_AGENT_NAME, config)
+
+    assert agent.url == f"{config.agent_endpoint}/v1/workflow/stream"
+
+
 async def run(agent: DRAgentAGUIAgent, *messages: Message) -> list[BaseEvent]:
     result = []
     async for event in agent.run(run_input(*messages)):

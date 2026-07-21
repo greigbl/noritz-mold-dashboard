@@ -12,6 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from agent.config import Config
+from pathlib import Path
 
-__all__ = ["Config"]
+
+def test_nat_workflow_uses_the_dragent_standard_path() -> None:
+    agent_root = Path(__file__).parents[1]
+
+    assert (agent_root / "workflow.yaml").is_file()
+    assert not (agent_root / "agent" / "workflow.yaml").exists()

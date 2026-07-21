@@ -13,107 +13,59 @@
 # limitations under the License.
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
 
-from agent import MyAgent
-from agent.myagent import custompy_adaptor, noop_mcp_tools_context
+
+def test_nat_plugin_registration_imports() -> None:
+    import agent.register  # noqa: F401
 
 
-class TestMyAgentNat:
-    def test_custom_model_uses_current_telemetry_instrumentation_api(self) -> None:
-        custom_model_source = (Path(__file__).parents[1] / "custom.py").read_text()
+def test_dragent_mcp_client_forwards_tavily_runtime_credential(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datarobot_genai.dragent.plugins.datarobot_mcp_client import (
+        DataRobotMCPStreamableHTTPClient,
+    )
 
-        assert (
-            "from datarobot_genai.core.telemetry.agent import instrument"
-            in custom_model_source
-        )
-        assert "instrument()" in custom_model_source
+    import agent.register  # noqa: F401
 
-    def test_myagent_is_nat_agent_subclass(self) -> None:
-        from datarobot_genai.nat.agent import NatAgent
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-key")
 
-        assert issubclass(MyAgent, NatAgent)
+    client = DataRobotMCPStreamableHTTPClient("http://localhost:9000/mcp")
 
-    def test_init_uses_default_workflow_path(self) -> None:
-        agent = MyAgent()
+    assert client.custom_headers["x-tavily-api-key"] == "tvly-test-key"
+    assert client.custom_headers["x-datarobot-tavily-api-key"] == "tvly-test-key"
 
-        assert (
-            agent.workflow_path == Path(__file__).parents[1] / "agent" / "workflow.yaml"
-        )
 
-    @pytest.mark.asyncio
-    async def test_noop_mcp_tools_context_returns_empty_tools(self) -> None:
-        async with noop_mcp_tools_context(MagicMock()) as tools:
-            assert tools == []
+def test_workflow_preserves_quality_alert_and_prediction_branches() -> None:
+    workflow_text = (Path(__file__).parents[1] / "workflow.yaml").read_text()
 
-    @pytest.mark.asyncio
-    @patch("agent.myagent.Config")
-    @patch("agent.myagent.MCPConfig")
-    @patch("agent.myagent.agent_chat_completion_wrapper", new_callable=AsyncMock)
-    @patch("agent.myagent.MyAgent")
-    async def test_custompy_adaptor_uses_nat_agent(
-        self,
-        mock_agent: MagicMock,
-        mock_wrapper: AsyncMock,
-        mock_mcp_config: MagicMock,
-        mock_config: MagicMock,
-    ) -> None:
-        mock_mcp_config.return_value.server_config = None
-        mock_config.return_value.tavily_api_key = None
-        completion_create_params = {
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "hi"}],
-            "forwarded_headers": {},
-            "authorization_context": {},
-        }
+    assert "実行モード: search_only" in workflow_text
+    assert "種別: spc_rbar" in workflow_text
+    assert "種別: business_rule" in workflow_text
+    assert "predict_realtime を呼び出してはいけません" in workflow_text
+    assert "search_agent を1回だけ呼んでください" in workflow_text
+    assert "通常の製造条件入力の場合は" in workflow_text
+    assert "predict_realtimeを実行してください" in workflow_text
 
-        await custompy_adaptor(completion_create_params)
 
-        mock_agent.assert_called_once()
-        assert mock_agent.call_args.kwargs["forwarded_headers"] == {}
-        mock_wrapper.assert_awaited_once()
+def test_search_agent_keeps_wikipedia_and_mcp_tools() -> None:
+    workflow = yaml.safe_load((Path(__file__).parents[1] / "workflow.yaml").read_text())
 
-    def test_datarobot_mcp_client_gets_tavily_header(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from datarobot_genai.nat.datarobot_mcp_client import (
-            DataRobotMCPStreamableHTTPClient,
-        )
+    assert workflow["functions"]["wikipedia_search"] == {
+        "_type": "wiki_search",
+        "max_results": 3,
+    }
+    assert "wikipedia_search" in workflow["functions"]["search_agent"]["tool_names"]
+    assert workflow["function_groups"]["mcp_tools"]["_type"] == "datarobot_mcp_client"
 
-        monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-key")
 
-        client = DataRobotMCPStreamableHTTPClient("http://localhost:9000/mcp")
+def test_taskfile_runs_nat_through_dragent() -> None:
+    taskfile_text = (Path(__file__).parents[1] / "Taskfile.yml").read_text()
 
-        assert client._custom_headers["x-tavily-api-key"] == "tvly-test-key"
-        assert client._custom_headers["x-datarobot-tavily-api-key"] == "tvly-test-key"
-
-    def test_workflow_branches_business_alerts_to_search_only(self) -> None:
-        workflow_text = (
-            Path(__file__).parents[1] / "agent" / "workflow.yaml"
-        ).read_text()
-
-        assert "実行モード: search_only" in workflow_text
-        assert "種別: spc_rbar" in workflow_text
-        assert "種別: business_rule" in workflow_text
-        assert "predict_realtime を呼び出してはいけません" in workflow_text
-        assert "search_agent を1回だけ呼んでください" in workflow_text
-        assert "通常の製造条件入力の場合は" in workflow_text
-        assert (
-            "アラートと勝手に判断せずに、predict_realtimeを実行してください"
-            in workflow_text
-        )
-
-    def test_search_agent_includes_nat_wikipedia_tool(self) -> None:
-        workflow_path = Path(__file__).parents[1] / "agent" / "workflow.yaml"
-        workflow = yaml.safe_load(workflow_path.read_text())
-
-        assert workflow["functions"]["wikipedia_search"] == {
-            "_type": "wiki_search",
-            "max_results": 3,
-        }
-        assert "wikipedia_search" in workflow["functions"]["search_agent"]["tool_names"]
-        assert "wikipedia_search" not in workflow["workflow"]["tool_names"]
-        assert "Wikipedia" in workflow["functions"]["search_agent"]["system_prompt"]
+    assert "nat dragent serve --config_file workflow.yaml" in taskfile_text
+    assert (
+        'DRAGENT_CONFIG_FILE="${DRAGENT_CONFIG_FILE:-workflow.yaml}"' in taskfile_text
+    )

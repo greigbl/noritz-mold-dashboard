@@ -104,13 +104,11 @@ agent_application_name: str = "agent"
 agent_asset_name: str = f"[{PROJECT_NAME}] [agent]"
 agent_application_path = project_dir.parent / "agent"
 
-_is_dragent_server_enabled = (
-    os.environ.get("ENABLE_DRAGENT_SERVER", "").strip().lower() == "true"
-)
+_is_dragent_server_enabled = True
 
 
 def _check_a2a_server_enabled() -> bool:
-    workflow_yaml_path = project_dir.parent / "agent" / "agent" / "workflow.yaml"
+    workflow_yaml_path = project_dir.parent / "agent" / "workflow.yaml"
     if not workflow_yaml_path.exists():
         return False
     with open(workflow_yaml_path) as f:
@@ -129,7 +127,7 @@ def _check_okta_xaa_credentials_needed() -> bool:
     to call remote XAA-protected agents. Server-side cross_application_access config
     only advertises XAA requirements on the agent card and does not need these credentials.
     """
-    workflow_yaml_path = project_dir.parent / "agent" / "agent" / "workflow.yaml"
+    workflow_yaml_path = project_dir.parent / "agent" / "workflow.yaml"
     if not workflow_yaml_path.exists():
         return False
     with open(workflow_yaml_path) as f:

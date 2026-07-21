@@ -39,6 +39,33 @@ def test_dragent_mcp_client_forwards_tavily_runtime_credential(
     assert client.custom_headers["x-datarobot-tavily-api-key"] == "tvly-test-key"
 
 
+def test_tavily_registration_uses_public_custom_headers_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import agent.register as register
+
+    class PublicHeadersOnlyClient:
+        custom_headers: dict[str, str]
+
+    def initialize_public_headers(
+        client: PublicHeadersOnlyClient, *args: object, **kwargs: object
+    ) -> None:
+        client.custom_headers = {}
+
+    monkeypatch.setattr(
+        register, "_original_mcp_client_init", initialize_public_headers
+    )
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-public-api-key")
+    client = PublicHeadersOnlyClient()
+
+    register._init_mcp_client_with_tavily_header(client)  # type: ignore[arg-type]
+
+    assert client.custom_headers == {
+        "x-tavily-api-key": "tvly-public-api-key",
+        "x-datarobot-tavily-api-key": "tvly-public-api-key",
+    }
+
+
 def test_workflow_preserves_quality_alert_and_prediction_branches() -> None:
     workflow_text = (Path(__file__).parents[1] / "workflow.yaml").read_text()
 

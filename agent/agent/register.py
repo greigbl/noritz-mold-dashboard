@@ -31,8 +31,8 @@ def _init_mcp_client_with_tavily_header(
     """Forward the optional agent runtime credential to the MCP server."""
     _original_mcp_client_init(self, *args, **kwargs)
     if tavily_api_key := os.getenv("TAVILY_API_KEY"):
-        self._custom_headers.setdefault("x-tavily-api-key", tavily_api_key)
-        self._custom_headers.setdefault("x-datarobot-tavily-api-key", tavily_api_key)
+        self.custom_headers.setdefault("x-tavily-api-key", tavily_api_key)
+        self.custom_headers.setdefault("x-datarobot-tavily-api-key", tavily_api_key)
 
 
 if not getattr(DataRobotMCPStreamableHTTPClient, "_tavily_header_registered", False):

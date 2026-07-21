@@ -47,7 +47,7 @@ class DRAgentEventResponse(BaseModel):
 
 
 class DRAgentAGUIAgent(AGUIAgent):
-    """AG-UI agent that uses the DRAgent server's workflow stream endpoint."""
+    """AG-UI agent that uses the DRAgent server's /generate/stream endpoint."""
 
     def __init__(
         self,
@@ -58,7 +58,7 @@ class DRAgentAGUIAgent(AGUIAgent):
         check_interval: float = 1.0,
     ) -> None:
         super().__init__(name)
-        self.url = f"{config.agent_endpoint}/v1/workflow/stream"
+        self.url = f"{config.agent_endpoint}/generate/stream"
 
         self.agent_headers: Dict[str, str] = {
             "Authorization": f"Bearer {config.datarobot_api_token}",
@@ -91,9 +91,7 @@ class DRAgentAGUIAgent(AGUIAgent):
         try:
             body = input.model_dump_json(by_alias=True)
 
-            logger.info(
-                "Sending request to DRAgent server's /v1/workflow/stream endpoint"
-            )
+            logger.info("Sending request to DRAgent server's /generate/stream endpoint")
 
             events_yielded = False
             async with httpx.AsyncClient(

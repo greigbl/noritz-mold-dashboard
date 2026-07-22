@@ -95,11 +95,15 @@ tasks:
       - dr auth check
 
   dev:
-    desc: "🚀 Run all services together"
+    desc: "🚀 Run local dashboard (API + frontend). Use `drdev` for full stack incl. agent/MCP."
     deps:
       - auth-check
     cmds:
-      - drdev
+      - |
+        echo "🚀 Starting dashboard services (fastapi_server + frontend_web)..."
+        echo "📊 Open http://localhost:5173/dashboard once ready"
+        echo "   (full stack: drdev)"
+        drdev fastapi_server frontend_web
 
   deploy:
     desc: "🚀 Deploy all services"

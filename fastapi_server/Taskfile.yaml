@@ -34,16 +34,37 @@ tasks:
     desc: "💻 Installing prior to start"
     cmds:
       - task: migrate
+  # API-only local server (use with frontend_web:dev / `task:dev`).
+  # For a single-process static build, use `task:dev-static`.
   dev:
     silent: true
-    desc: "🔨 Run the development server"
+    desc: "🔨 Run the development API server"
     deps:
       - auth-check
       - migrate
+    dotenv:
+      - ../.env
     cmds:
-      - echo "🔨 Starting development server"
-      - cd ../frontend_web && task build
-      - "{{.UV_CMD}} run uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload"
+      - |
+        echo "Starting FastAPI on http://localhost:8080"
+        echo "Dashboard via Vite: http://localhost:5173/dashboard"
+        {{.UV_CMD}} run uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+    env:
+      TEST_USER_EMAIL: developer@example.com
+  dev-static:
+    silent: true
+    desc: "🔨 Build frontend and run API+static on :8080"
+    deps:
+      - auth-check
+      - migrate
+    dotenv:
+      - ../.env
+    cmds:
+      - |
+        echo "Building frontend.."
+        cd ../frontend_web && task build
+        echo "Starting FastAPI+static on http://localhost:8080/dashboard"
+        {{.UV_CMD}} run uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
     env:
       TEST_USER_EMAIL: developer@example.com
   lint:

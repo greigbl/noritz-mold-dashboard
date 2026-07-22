@@ -111,6 +111,10 @@ export type RbarChart = {
   centerLine: number;
   ucl: number;
   lcl: number;
+  upper2Sigma?: number | null;
+  upper1Sigma?: number | null;
+  lower1Sigma?: number | null;
+  lower2Sigma?: number | null;
   points: RbarChartPoint[];
 };
 

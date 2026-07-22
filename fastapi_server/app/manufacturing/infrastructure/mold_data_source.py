@@ -222,6 +222,10 @@ def build_xr_charts_and_alerts(
             center_line = float(limits.get("CL", 0.0))
             ucl = float(limits.get("UCL", 0.0))
             lcl = float(limits.get("LCL", 0.0))
+            upper_2sigma = float(limits["upper_2sigma"]) if "upper_2sigma" in limits else None
+            upper_1sigma = float(limits["upper_1sigma"]) if "upper_1sigma" in limits else None
+            lower_1sigma = float(limits["lower_1sigma"]) if "lower_1sigma" in limits else None
+            lower_2sigma = float(limits["lower_2sigma"]) if "lower_2sigma" in limits else None
 
             chart_points: list[RbarChartPoint] = []
             for day, value in plot_points:
@@ -291,6 +295,10 @@ def build_xr_charts_and_alerts(
                 center_line=round(center_line, 6),
                 ucl=round(ucl, 6),
                 lcl=round(lcl, 6),
+                upper_2sigma=round(upper_2sigma, 6) if upper_2sigma is not None else None,
+                upper_1sigma=round(upper_1sigma, 6) if upper_1sigma is not None else None,
+                lower_1sigma=round(lower_1sigma, 6) if lower_1sigma is not None else None,
+                lower_2sigma=round(lower_2sigma, 6) if lower_2sigma is not None else None,
                 points=chart_points,
             )
 

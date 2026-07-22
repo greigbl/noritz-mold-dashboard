@@ -144,6 +144,10 @@ class RbarChart(ManufacturingBaseModel):
     center_line: float
     ucl: float
     lcl: float
+    upper_2sigma: float | None = None
+    upper_1sigma: float | None = None
+    lower_1sigma: float | None = None
+    lower_2sigma: float | None = None
     points: list[RbarChartPoint]
 
 

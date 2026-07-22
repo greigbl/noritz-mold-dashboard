@@ -173,7 +173,16 @@ function XrControlChart({
 
   const plotValues = chart.points
     .map(point => point.value)
-    .concat([chart.ucl, chart.centerLine, chart.lcl]);
+    .concat([
+      chart.ucl,
+      chart.centerLine,
+      chart.lcl,
+      chart.upper2Sigma,
+      chart.upper1Sigma,
+      chart.lower1Sigma,
+      chart.lower2Sigma,
+    ])
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
   const rawMin = Math.min(...plotValues);
   const rawMax = Math.max(...plotValues);
   const rawSpan = rawMax - rawMin;
@@ -184,6 +193,9 @@ function XrControlChart({
     ...point,
     label: formatDate(point.date),
   }));
+  const sigma2Stroke = '#fde68a';
+  const sigma1Stroke = '#86efac';
+  const sigmaStrokeWidth = 1;
 
   return (
     <Card className="rounded-md">
@@ -266,6 +278,18 @@ function XrControlChart({
                       <div>CL {chart.centerLine.toFixed(4)}</div>
                       <div>UCL {chart.ucl.toFixed(4)}</div>
                       <div>LCL {chart.lcl.toFixed(4)}</div>
+                      {chart.upper2Sigma != null ? (
+                        <div>上側2σ {chart.upper2Sigma.toFixed(4)}</div>
+                      ) : null}
+                      {chart.upper1Sigma != null ? (
+                        <div>上側1σ {chart.upper1Sigma.toFixed(4)}</div>
+                      ) : null}
+                      {chart.lower1Sigma != null ? (
+                        <div>下側1σ {chart.lower1Sigma.toFixed(4)}</div>
+                      ) : null}
+                      {chart.lower2Sigma != null ? (
+                        <div>下側2σ {chart.lower2Sigma.toFixed(4)}</div>
+                      ) : null}
                       {point.violationRules?.length ? (
                         <div className="mt-1 text-warning">
                           違反ルール {point.violationRules.join(',')}
@@ -275,9 +299,42 @@ function XrControlChart({
                   );
                 }}
               />
+              {chart.upper2Sigma != null ? (
+                <ReferenceLine
+                  y={chart.upper2Sigma}
+                  stroke={sigma2Stroke}
+                  strokeWidth={sigmaStrokeWidth}
+                  strokeDasharray="4 4"
+                />
+              ) : null}
+              {chart.lower2Sigma != null ? (
+                <ReferenceLine
+                  y={chart.lower2Sigma}
+                  stroke={sigma2Stroke}
+                  strokeWidth={sigmaStrokeWidth}
+                  strokeDasharray="4 4"
+                />
+              ) : null}
+              {chart.upper1Sigma != null ? (
+                <ReferenceLine
+                  y={chart.upper1Sigma}
+                  stroke={sigma1Stroke}
+                  strokeWidth={sigmaStrokeWidth}
+                  strokeDasharray="3 3"
+                />
+              ) : null}
+              {chart.lower1Sigma != null ? (
+                <ReferenceLine
+                  y={chart.lower1Sigma}
+                  stroke={sigma1Stroke}
+                  strokeWidth={sigmaStrokeWidth}
+                  strokeDasharray="3 3"
+                />
+              ) : null}
               <ReferenceLine
                 y={chart.ucl}
                 stroke="var(--destructive-foreground)"
+                strokeWidth={1.5}
                 strokeDasharray="4 3"
                 label={{
                   value: 'UCL',
@@ -289,6 +346,7 @@ function XrControlChart({
               <ReferenceLine
                 y={chart.lcl}
                 stroke="var(--destructive-foreground)"
+                strokeWidth={1.5}
                 strokeDasharray="4 3"
                 label={{
                   value: 'LCL',
@@ -300,6 +358,7 @@ function XrControlChart({
               <ReferenceLine
                 y={chart.centerLine}
                 stroke="var(--muted-foreground)"
+                strokeWidth={1.2}
                 strokeDasharray="2 3"
                 label={{
                   value: 'CL',
@@ -353,6 +412,10 @@ function XrControlChart({
           <div>
             表示域 {domainMin.toFixed(4)} - {domainMax.toFixed(4)}
           </div>
+          {chart.upper2Sigma != null ? <div>上側2σ {chart.upper2Sigma.toFixed(4)}</div> : null}
+          {chart.upper1Sigma != null ? <div>上側1σ {chart.upper1Sigma.toFixed(4)}</div> : null}
+          {chart.lower1Sigma != null ? <div>下側1σ {chart.lower1Sigma.toFixed(4)}</div> : null}
+          {chart.lower2Sigma != null ? <div>下側2σ {chart.lower2Sigma.toFixed(4)}</div> : null}
         </div>
       </CardContent>
     </Card>

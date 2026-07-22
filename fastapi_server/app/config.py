@@ -12,16 +12,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+from pathlib import Path
 from typing import Sequence
 
 from datarobot.core.config import DataRobotAppFrameworkBaseSettings
 from pydantic import Field, ValidationInfo, field_validator
+from pydantic_settings import SettingsConfigDict
 
 from app.auth.oauth import OAuthImpl
 from app.telemetry import FormatType, LogLevel
 
 
+def _find_dotenv(filename: str = ".env") -> str:
+    """Resolve .env from cwd or any parent (project root when run from fastapi_server/)."""
+    cwd = Path.cwd()
+    for path in [cwd, *cwd.parents]:
+        candidate = path / filename
+        if candidate.is_file():
+            return str(candidate)
+    return filename
+
+
 class Config(DataRobotAppFrameworkBaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=_find_dotenv(),
+        extra="ignore",
+    )
+
     session_secret_key: str
 
     datarobot_endpoint: str

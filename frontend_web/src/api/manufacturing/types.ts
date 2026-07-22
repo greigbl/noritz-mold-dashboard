@@ -9,7 +9,17 @@ export type ManufacturingMetric =
   | 'uv_irradiance'
   | 'lamp_lighting_hours'
   | 'chamber_o2_concentration'
-  | 'uv_roll_temperature';
+  | 'uv_roll_temperature'
+  | 'a_agent_flow_pressure'
+  | 'b_agent_flow_pressure'
+  | 'a_tank1_pressure'
+  | 'a_tank2_pressure'
+  | 'b_tank1_pressure'
+  | 'b_tank2_pressure'
+  | 'a_mix_ratio_speed'
+  | 'b_mix_ratio_speed'
+  | 'production_flow_rate'
+  | 'production_discharge_time';
 
 export type AlertType = 'prediction_ai' | 'spc_rbar' | 'business_rule';
 export type AlertSeverity = 'info' | 'warning' | 'critical';
@@ -91,10 +101,13 @@ export type RbarChartPoint = {
   date: string;
   value: number;
   alertId: string | null;
+  violationRules?: number[];
+  pattern?: number | null;
 };
 
 export type RbarChart = {
   metric: ManufacturingMetric;
+  pattern?: number | null;
   centerLine: number;
   ucl: number;
   lcl: number;
@@ -107,6 +120,8 @@ export type ManufacturingDashboard = {
   summary: ManufacturingSummary;
   series: ManufacturingDailyRecord[];
   rbarChart: RbarChart | null;
-  rbarCharts: Partial<Record<ManufacturingMetric, RbarChart>>;
-  alerts: ManufacturingAlert[];
+  rbarCharts?: Partial<Record<ManufacturingMetric, RbarChart>>;
+  xrCharts?: Partial<Record<ManufacturingMetric, Record<string, RbarChart>>>;
+  availablePatterns?: number[];
+  alerts?: ManufacturingAlert[];
 };

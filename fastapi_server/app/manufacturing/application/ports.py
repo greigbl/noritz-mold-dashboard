@@ -52,3 +52,7 @@ class InsightGenerator(Protocol):
         alert: ManufacturingAlert,
         dashboard: ManufacturingDashboard | None = None,
     ) -> ManufacturingAlert: ...
+
+
+class MoldDashboardProvider(Protocol):
+    def build(self) -> ManufacturingDashboard: ...

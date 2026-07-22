@@ -75,6 +75,18 @@ class InsightService:
                 f"重点確認してください。{latest_context}"
             )
 
+        if alert.alert_type == "business_rule":
+            rules = alert.evidence.get("violationRulesStr") or alert.description
+            pattern = alert.evidence.get("pattern")
+            pattern_text = f"吐出パターン{pattern}、" if pattern is not None else ""
+            return (
+                f"原因仮説: 新JIS X-R管理図の業務ルール（{rules}）に該当しました。"
+                f"確認観点: {pattern_text}該当特性値の直近推移、原材料ロット、"
+                "設備設定変更、吐出条件の変更履歴を確認してください。"
+                "対応案: 違反ルールに応じて連続性/領域逸脱の発生区間を特定し、"
+                f"同条件ロットを優先確認してください。{latest_context}"
+            )
+
         return (
             "原因仮説: 業務ルールに合致する異常兆候があります。確認観点: "
             "該当メトリクスの直近推移と設備・材料変更履歴を確認してください。"

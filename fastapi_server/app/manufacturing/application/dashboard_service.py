@@ -21,6 +21,7 @@ from app.manufacturing.application.ports import (
     InsightGenerator,
     ManufacturingDataSet,
     ManufacturingDataSource,
+    MoldDashboardProvider,
     PredictionClient,
 )
 from app.manufacturing.domain.detectors import (
@@ -47,6 +48,7 @@ class ManufacturingDashboardService:
         insight_service: InsightGenerator,
         data_source: ManufacturingDataSource | None = None,
         detectors: Sequence[ManufacturingDetector] | None = None,
+        mold_dashboard_provider: MoldDashboardProvider | None = None,
     ) -> None:
         self.prediction_client = prediction_client
         self.insight_service = insight_service
@@ -54,6 +56,7 @@ class ManufacturingDashboardService:
         self.detectors = (
             list(detectors) if detectors is not None else build_default_detectors()
         )
+        self.mold_dashboard_provider = mold_dashboard_provider
         self._alerts_by_id: dict[str, ManufacturingAlert] = {}
         self._last_dashboard: ManufacturingDashboard | None = None
         self._prediction_task: asyncio.Task[list[PredictionResult]] | None = None
@@ -65,6 +68,9 @@ class ManufacturingDashboardService:
         self,
         series: list[ManufacturingDailyRecord] | None = None,
     ) -> ManufacturingDashboard:
+        if self.mold_dashboard_provider is not None and series is None:
+            return await self.build_mold_dashboard()
+
         if series is None:
             if self.data_source is None:
                 raise ValueError("Manufacturing data source is not configured.")
@@ -135,6 +141,18 @@ class ManufacturingDashboardService:
             alerts=alerts,
         )
 
+        if dashboard.alerts:
+            await self.insight_service.prepare_insights(dashboard)
+
+        self._last_dashboard = dashboard
+        self._alerts_by_id = {alert.id: alert for alert in dashboard.alerts}
+        return dashboard
+
+    async def build_mold_dashboard(self) -> ManufacturingDashboard:
+        if self.mold_dashboard_provider is None:
+            raise ValueError("Mold dashboard provider is not configured.")
+
+        dashboard = self.mold_dashboard_provider.build()
         if dashboard.alerts:
             await self.insight_service.prepare_insights(dashboard)
 

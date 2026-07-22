@@ -29,6 +29,17 @@ MetricName = Literal[
     "lamp_lighting_hours",
     "chamber_o2_concentration",
     "uv_roll_temperature",
+    # Noritz mold-machine X-R metrics
+    "a_agent_flow_pressure",
+    "b_agent_flow_pressure",
+    "a_tank1_pressure",
+    "a_tank2_pressure",
+    "b_tank1_pressure",
+    "b_tank2_pressure",
+    "a_mix_ratio_speed",
+    "b_mix_ratio_speed",
+    "production_flow_rate",
+    "production_discharge_time",
 ]
 
 AlertType = Literal["prediction_ai", "spc_rbar", "business_rule"]
@@ -123,10 +134,13 @@ class RbarChartPoint(ManufacturingBaseModel):
     date: date
     value: float
     alert_id: str | None = None
+    violation_rules: list[int] = Field(default_factory=list)
+    pattern: int | None = None
 
 
 class RbarChart(ManufacturingBaseModel):
     metric: MetricName
+    pattern: int | None = None
     center_line: float
     ucl: float
     lcl: float
@@ -140,6 +154,9 @@ class ManufacturingDashboard(ManufacturingBaseModel):
     series: list[ManufacturingDailyRecord]
     rbar_chart: RbarChart | None = None
     rbar_charts: dict[MetricName, RbarChart]
+    # metric -> pattern(str) -> chart for mold X-R dual selection
+    xr_charts: dict[MetricName, dict[str, RbarChart]] = Field(default_factory=dict)
+    available_patterns: list[int] = Field(default_factory=list)
     alerts: list[ManufacturingAlert]
 
 

@@ -6,146 +6,159 @@ import { describe, expect, it } from 'vitest';
 import { DashboardPage } from '../src/pages/DashboardPage';
 import { server } from './__mocks__/node';
 
-const dailyRecord = {
-  lotsProduced: 250,
-  totalCoatingLengthM: 250000,
-  bleedoutCount: 4,
-  bleedoutRate: 0.016,
-  coatingLengthCategory: '1000m',
-  coatingLengthAvgM: 1000,
-  productType: '製造',
-  coaterTemperature: 28.2,
-  coaterTemperatureRange: 1.1,
-  coaterHumidity: 50.5,
-  coaterHumidityRange: 0.8,
-  pumpPressure: 0.9,
-  pumpPressureRange: 0.02,
-  dryingZone1Temperature: 120.1,
-  dryingZone1TemperatureRange: 0.3,
-  dryingZone2Temperature: 122.1,
-  dryingZone2TemperatureRange: 0.35,
-  uvIrradiance: 1020.4,
-  uvIrradianceRange: 1.6,
-  lampLightingHours: 900,
-  chamberO2Concentration: 0.011,
-  chamberO2ConcentrationRange: 0.0002,
-  uvRollTemperature: 89.05,
-  uvRollTemperatureRange: 0.12,
-  predictionProbability: null,
-  predictionLabel: null,
-  alertIds: [],
-};
-
-const predictionAlert = {
-  id: 'prediction-2026-04-27',
-  alertType: 'prediction_ai',
+const businessAlert = {
+  id: 'jis-xr-2026-04-21-a-agent-flow-pressure-p1',
+  dedupKey: 'business_rule:jis_xr:a_agent_flow_pressure:1:2026-04-21',
+  alertType: 'business_rule',
   severity: 'critical',
   status: 'firing',
-  source: 'datarobot_prediction',
-  metric: 'bleedout_rate',
-  date: '2026-04-27',
-  title: '予測AIがブリードアウト高リスクを検知',
-  description: '予測確率がしきい値を超過しました。',
-  actual: 0.91,
-  threshold: 0.8,
-  controlLimit: null,
-  centerLine: null,
-  ruleId: 'prediction.probability.threshold',
-  ruleVersion: '1.0.0',
-  evidence: { probability: 0.91 },
-  insightStatus: 'ready',
-  insight: '原因仮説: 直近の温湿度とUV条件を確認してください。',
-};
-
-const spcAlert = {
-  id: 'spc-rbar-2026-04-27-coater-temperature',
-  alertType: 'spc_rbar',
-  severity: 'warning',
-  status: 'firing',
-  source: 'spc',
-  metric: 'coater_temperature',
-  date: '2026-04-27',
-  title: 'Rbar管理図でコーター部温度のばらつきを検知',
-  description: '日内レンジが管理限界を超過しました。',
-  actual: 3,
+  source: 'phase2_xr',
+  metric: 'a_agent_flow_pressure',
+  date: '2026-04-21',
+  title: 'A剤流圧 / 吐出パターン1 でJIS管理図違反を検知',
+  description: 'ルール1:領域A超過（管理限界超過）',
+  actual: 0.32,
   threshold: null,
-  controlLimit: 2.31,
-  centerLine: 1.09,
-  ruleId: 'spc.rbar.beyond_control_limit',
+  controlLimit: 0.2481,
+  centerLine: 0.1966,
+  ruleId: 'jis.xr.violation_rules',
   ruleVersion: '1.0.0',
-  evidence: { ucl: 2.31 },
+  evidence: {
+    pattern: 1,
+    violationRules: [1],
+    violationRulesStr: '1',
+  },
   insightStatus: 'ready',
-  insight: '確認観点: センサー校正、原材料ロット、設備設定変更を確認してください。',
+  insight: '確認観点: 吐出パターン1の直近推移を確認してください。',
 };
 
 const dashboardResponse = {
-  predictionStatus: 'available',
+  predictionStatus: 'unavailable',
   range: {
-    startDate: '2026-03-19',
-    endDate: '2026-04-27',
+    startDate: '2026-03-23',
+    endDate: '2026-04-21',
     grain: 'day',
   },
   summary: {
-    latestDate: '2026-04-27',
-    lotsProduced: 250,
-    totalCoatingLengthM: 250000,
-    bleedoutCount: 28,
-    bleedoutRate: 0.112,
-    alertCount: 2,
-    predictionAlertCount: 1,
+    latestDate: '2026-04-21',
+    lotsProduced: 0,
+    totalCoatingLengthM: 0,
+    bleedoutCount: 0,
+    bleedoutRate: 0,
+    alertCount: 1,
+    predictionAlertCount: 0,
     businessRuleAlertCount: 1,
     criticalAlertCount: 1,
   },
   series: [
-    { ...dailyRecord, date: '2026-04-25' },
-    { ...dailyRecord, date: '2026-04-26', bleedoutCount: 3, bleedoutRate: 0.012 },
     {
-      ...dailyRecord,
-      date: '2026-04-27',
-      bleedoutCount: 28,
-      bleedoutRate: 0.112,
-      coaterTemperatureRange: 3,
-      predictionProbability: 0.91,
-      predictionLabel: 'high_risk',
-      alertIds: [predictionAlert.id, spcAlert.id],
+      date: '2026-04-21',
+      lotsProduced: 0,
+      totalCoatingLengthM: 0,
+      bleedoutCount: 0,
+      bleedoutRate: 0,
+      coatingLengthCategory: '-',
+      coatingLengthAvgM: 0,
+      productType: 'モールド',
+      coaterTemperature: 0,
+      coaterTemperatureRange: 0,
+      coaterHumidity: 0,
+      coaterHumidityRange: 0,
+      pumpPressure: 0,
+      pumpPressureRange: 0,
+      dryingZone1Temperature: 0,
+      dryingZone1TemperatureRange: 0,
+      dryingZone2Temperature: 0,
+      dryingZone2TemperatureRange: 0,
+      uvIrradiance: 0,
+      uvIrradianceRange: 0,
+      lampLightingHours: 0,
+      chamberO2Concentration: 0,
+      chamberO2ConcentrationRange: 0,
+      uvRollTemperature: 0,
+      uvRollTemperatureRange: 0,
+      predictionProbability: null,
+      predictionLabel: null,
+      alertIds: [businessAlert.id],
     },
   ],
   rbarChart: {
-    metric: 'coater_temperature',
-    centerLine: 1.09,
-    ucl: 2.31,
-    lcl: 0,
+    metric: 'a_agent_flow_pressure',
+    pattern: 1,
+    centerLine: 0.1966,
+    ucl: 0.2481,
+    lcl: 0.1451,
     points: [
-      { date: '2026-04-25', value: 1.1, alertId: null },
-      { date: '2026-04-26', value: 1, alertId: null },
-      { date: '2026-04-27', value: 3, alertId: spcAlert.id },
+      { date: '2026-04-15', value: 0.195, alertId: null, violationRules: [], pattern: 1 },
+      {
+        date: '2026-04-21',
+        value: 0.32,
+        alertId: businessAlert.id,
+        violationRules: [1],
+        pattern: 1,
+      },
     ],
   },
   rbarCharts: {
-    coater_temperature: {
-      metric: 'coater_temperature',
-      centerLine: 1.09,
-      ucl: 2.31,
-      lcl: 0,
+    a_agent_flow_pressure: {
+      metric: 'a_agent_flow_pressure',
+      pattern: 1,
+      centerLine: 0.1966,
+      ucl: 0.2481,
+      lcl: 0.1451,
       points: [
-        { date: '2026-04-25', value: 1.1, alertId: null },
-        { date: '2026-04-26', value: 1, alertId: null },
-        { date: '2026-04-27', value: 3, alertId: spcAlert.id },
-      ],
-    },
-    uv_irradiance: {
-      metric: 'uv_irradiance',
-      centerLine: 1.6,
-      ucl: 3.38,
-      lcl: 0,
-      points: [
-        { date: '2026-04-25', value: 1.6, alertId: null },
-        { date: '2026-04-26', value: 1.5, alertId: null },
-        { date: '2026-04-27', value: 5, alertId: null },
+        { date: '2026-04-15', value: 0.195, alertId: null, violationRules: [], pattern: 1 },
+        {
+          date: '2026-04-21',
+          value: 0.32,
+          alertId: businessAlert.id,
+          violationRules: [1],
+          pattern: 1,
+        },
       ],
     },
   },
-  alerts: [predictionAlert, spcAlert],
+  xrCharts: {
+    a_agent_flow_pressure: {
+      '1': {
+        metric: 'a_agent_flow_pressure',
+        pattern: 1,
+        centerLine: 0.1966,
+        ucl: 0.2481,
+        lcl: 0.1451,
+        points: [
+          { date: '2026-04-15', value: 0.195, alertId: null, violationRules: [], pattern: 1 },
+          {
+            date: '2026-04-21',
+            value: 0.32,
+            alertId: businessAlert.id,
+            violationRules: [1],
+            pattern: 1,
+          },
+        ],
+      },
+      '6': {
+        metric: 'a_agent_flow_pressure',
+        pattern: 6,
+        centerLine: 0.1746,
+        ucl: 0.2018,
+        lcl: 0.1474,
+        points: [{ date: '2026-04-15', value: 0.1708, alertId: null, violationRules: [], pattern: 6 }],
+      },
+    },
+    b_agent_flow_pressure: {
+      '1': {
+        metric: 'b_agent_flow_pressure',
+        pattern: 1,
+        centerLine: 0.2,
+        ucl: 0.25,
+        lcl: 0.15,
+        points: [{ date: '2026-04-15', value: 0.2, alertId: null, violationRules: [], pattern: 1 }],
+      },
+    },
+  },
+  availablePatterns: [1, 6],
+  alerts: [businessAlert],
 };
 
 function renderDashboard(initialEntries = ['/dashboard']) {
@@ -167,36 +180,41 @@ function renderDashboard(initialEntries = ['/dashboard']) {
 }
 
 describe('DashboardPage', () => {
-  it('renders prediction and business alert counts with highlighted alert days', async () => {
+  it('renders mold X-R dashboard with business alerts', async () => {
     server.use(
       http.get('*/api/v1/manufacturing/dashboard', () => HttpResponse.json(dashboardResponse))
     );
 
     renderDashboard();
 
-    expect(await screen.findByText('製造ダッシュボード')).toBeInTheDocument();
-    expect(screen.getByText('予測AIアラート')).toBeInTheDocument();
-    expect(screen.getByText('業務ロジックアラート')).toBeInTheDocument();
-    expect(screen.getByText('1件', { selector: '[data-testid="prediction-alert-count"]' }));
+    expect(await screen.findByText('モールド装置 X-R管理図')).toBeInTheDocument();
+    expect(screen.getByText('業務アラート（全体）')).toBeInTheDocument();
     expect(screen.getByText('1件', { selector: '[data-testid="business-alert-count"]' }));
-    expect(screen.getByLabelText('2026-04-27 alert day')).toBeInTheDocument();
-    expect(screen.getByText('コーター部温度 日内レンジ Rbar管理図')).toBeInTheDocument();
+    expect(screen.getByText('A剤流圧 X管理図')).toBeInTheDocument();
+    expect(screen.getByLabelText('吐出パターン番号')).toBeInTheDocument();
   });
 
-  it('switches the Rbar chart metric by toggle', async () => {
+  it('switches metric and pattern selectors', async () => {
     server.use(
       http.get('*/api/v1/manufacturing/dashboard', () => HttpResponse.json(dashboardResponse))
     );
 
     renderDashboard();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'UV照度' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'B剤流圧' }));
+    expect(screen.getByText('B剤流圧 X管理図')).toBeInTheDocument();
 
-    expect(screen.getByText('UV照度 日内レンジ Rbar管理図')).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'UV照度 日内レンジ Rbar管理図' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('吐出パターン番号'), { target: { value: '6' } });
+    // Pattern 6 is only available for A剤; B剤 falls back / effect resets.
+    // Switch back to A剤 and select pattern 6.
+    fireEvent.click(screen.getByRole('button', { name: 'A剤流圧' }));
+    fireEvent.change(screen.getByLabelText('吐出パターン番号'), { target: { value: '6' } });
+    expect(
+      screen.getByRole('img', { name: 'A剤流圧 吐出パターン6 X管理図' })
+    ).toBeInTheDocument();
   });
 
-  it('renders dashboard when Rbar chart data is unavailable', async () => {
+  it('renders empty state when chart data is unavailable', async () => {
     server.use(
       http.get('*/api/v1/manufacturing/dashboard', () =>
         HttpResponse.json({
@@ -207,9 +225,9 @@ describe('DashboardPage', () => {
             businessRuleAlertCount: 0,
             criticalAlertCount: 0,
           },
-          series: dashboardResponse.series.map(record => ({ ...record, alertIds: [] })),
           rbarChart: null,
           rbarCharts: {},
+          xrCharts: {},
           alerts: [],
         })
       )
@@ -217,9 +235,8 @@ describe('DashboardPage', () => {
 
     renderDashboard();
 
-    expect(await screen.findByText('製造ダッシュボード')).toBeInTheDocument();
-    expect(screen.getByText('Rbar管理図データなし')).toBeInTheDocument();
-    expect(screen.queryByRole('img', { name: /Rbar管理図/ })).not.toBeInTheDocument();
+    expect(await screen.findByText('モールド装置 X-R管理図')).toBeInTheDocument();
+    expect(screen.getByText('X管理図データなし')).toBeInTheDocument();
   });
 
   it('navigates to chat with the alert id when an alert is clicked', async () => {
@@ -229,7 +246,7 @@ describe('DashboardPage', () => {
 
     renderDashboard();
 
-    fireEvent.click(await screen.findByRole('link', { name: /Rbar管理図/ }));
+    fireEvent.click(await screen.findByRole('link', { name: /JIS管理図違反/ }));
 
     expect(await screen.findByText('Chat target')).toBeInTheDocument();
   });

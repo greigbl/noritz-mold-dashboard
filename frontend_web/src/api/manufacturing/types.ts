@@ -121,10 +121,12 @@ export type RbarChart = {
 export type DailyCountPoint = {
   date: string;
   count: number;
+  maxAnomalyScore?: number | null;
 };
 
 export type DailyCountChart = {
   points: DailyCountPoint[];
+  anomalyScoreThreshold?: number;
 };
 
 export type ManufacturingDashboard = {
@@ -137,5 +139,6 @@ export type ManufacturingDashboard = {
   xrCharts?: Partial<Record<ManufacturingMetric, Record<string, RbarChart>>>;
   availablePatterns?: number[];
   dailyCountChart?: DailyCountChart | null;
+  jisRuleDescriptions?: Record<string, string>;
   alerts?: ManufacturingAlert[];
 };

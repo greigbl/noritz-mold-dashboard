@@ -154,10 +154,12 @@ class RbarChart(ManufacturingBaseModel):
 class DailyCountPoint(ManufacturingBaseModel):
     date: date
     count: int
+    max_anomaly_score: float | None = None
 
 
 class DailyCountChart(ManufacturingBaseModel):
     points: list[DailyCountPoint]
+    anomaly_score_threshold: float = 0.085
 
 
 class ManufacturingDashboard(ManufacturingBaseModel):
@@ -171,6 +173,7 @@ class ManufacturingDashboard(ManufacturingBaseModel):
     xr_charts: dict[MetricName, dict[str, RbarChart]] = Field(default_factory=dict)
     available_patterns: list[int] = Field(default_factory=list)
     daily_count_chart: DailyCountChart | None = None
+    jis_rule_descriptions: dict[str, str] = Field(default_factory=dict)
     alerts: list[ManufacturingAlert]
 
 

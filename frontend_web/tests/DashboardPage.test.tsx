@@ -27,6 +27,9 @@ const businessAlert = {
     pattern: 1,
     violationRules: [1],
     violationRulesStr: '1',
+    violationRuleDetails: [
+      { rule: 1, description: '領域A超過点が1つ（管理限界超過）' },
+    ],
   },
   insightStatus: 'ready',
   insight: '確認観点: 吐出パターン1の直近推移を確認してください。',
@@ -159,11 +162,16 @@ const dashboardResponse = {
   },
   availablePatterns: [1, 6],
   dailyCountChart: {
+    anomalyScoreThreshold: 0.085,
     points: [
-      { date: '2026-04-15', count: 1194 },
-      { date: '2026-04-16', count: 1225 },
-      { date: '2026-04-21', count: 1895 },
+      { date: '2026-04-15', count: 1194, maxAnomalyScore: 0.001 },
+      { date: '2026-04-16', count: 1225, maxAnomalyScore: 0.12 },
+      { date: '2026-04-21', count: 1895, maxAnomalyScore: 0.002 },
     ],
+  },
+  jisRuleDescriptions: {
+    '1': '領域A超過点が1つ（管理限界超過）',
+    '5': '連続3点中2点以上が領域Aまたはそれを超えた領域（±2σ超過）',
   },
   alerts: [businessAlert],
 };
@@ -201,6 +209,9 @@ describe('DashboardPage', () => {
     expect(screen.getByText('A剤流圧 X管理図')).toBeInTheDocument();
     expect(screen.getByText('B剤流圧 X管理図')).toBeInTheDocument();
     expect(screen.getByLabelText('吐出パターン番号')).toBeInTheDocument();
+    expect(screen.getByText('選択中パターンで発火中のJISルール')).toBeInTheDocument();
+    expect(screen.getAllByText(/領域A超過点が1つ/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('ルール1').length).toBeGreaterThan(0);
   });
 
   it('switches pattern and updates all feature charts', async () => {
@@ -260,5 +271,26 @@ describe('DashboardPage', () => {
     fireEvent.click(await screen.findByRole('link', { name: /JIS管理図違反/ }));
 
     expect(await screen.findByText('Chat target')).toBeInTheDocument();
+  });
+
+  it('updates anomaly score threshold from settings dialog', async () => {
+    window.localStorage.removeItem('manufacturing.anomalyScoreThreshold');
+    server.use(
+      http.get('*/api/v1/manufacturing/dashboard', () => HttpResponse.json(dashboardResponse))
+    );
+
+    renderDashboard();
+
+    fireEvent.click(await screen.findByRole('button', { name: '設定' }));
+    expect(await screen.findByText('異常スコア閾値')).toBeInTheDocument();
+
+    const input = screen.getByLabelText('異常スコア閾値');
+    fireEvent.change(input, { target: { value: '0.05' } });
+    fireEvent.click(screen.getByRole('button', { name: '適用' }));
+
+    expect(window.localStorage.getItem('manufacturing.anomalyScoreThreshold')).toBe('0.05');
+
+    fireEvent.click(screen.getByRole('button', { name: '設定' }));
+    expect(await screen.findByText('現在の閾値: 0.05')).toBeInTheDocument();
   });
 });

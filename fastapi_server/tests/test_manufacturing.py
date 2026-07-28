@@ -15,6 +15,7 @@
 import asyncio
 import csv
 import io
+import json
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -625,3 +626,57 @@ def test_upload_manufacturing_dashboard_from_monthly_chunks(
     assert data["dailyCountChart"] is not None
     assert len(data["dailyCountChart"]["points"]) > 0
     assert "count" in data["dailyCountChart"]["points"][0]
+    assert data["dailyCountChart"]["anomalyScoreThreshold"] == 0.085
+    assert any(
+        point.get("maxAnomalyScore") is not None
+        for point in data["dailyCountChart"]["points"]
+    )
+    assert data["jisRuleDescriptions"]["1"].startswith("領域A超過")
+    assert any(
+        "violationRuleDetails" in alert.get("evidence", {})
+        for alert in data["alerts"]
+    )
+
+
+def test_parse_production_day_and_max_anomaly_scores(tmp_path: Path) -> None:
+    from app.manufacturing.infrastructure import mold_data_source as mold
+
+    assert mold.parse_production_day("2026-04-15") == date(2026, 4, 15)
+    assert mold.parse_production_day("46127.0") == date(2026, 4, 15)
+
+    csv_path = tmp_path / "demo_features_予測結果.csv"
+    csv_path.write_text(
+        "\n".join(
+            [
+                "ANOMALY_SCORE,生産日",
+                "0.01,46127.0",
+                "0.20,46127.0",
+                "0.05,46128.0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    counts_path = tmp_path / "phase3_daily_data_counts.json"
+    counts_path.write_text(
+        json.dumps(
+            {
+                "daily_counts": {
+                    "2026-04-15": 10,
+                    "2026-04-16": 3,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    scores = mold.load_daily_max_anomaly_scores(tmp_path)
+    assert scores[date(2026, 4, 15)] == 0.2
+    assert scores[date(2026, 4, 16)] == 0.05
+
+    chart = mold.load_daily_counts(tmp_path)
+    assert chart is not None
+    assert chart.anomaly_score_threshold == 0.085
+    by_date = {point.date: point for point in chart.points}
+    assert by_date[date(2026, 4, 15)].max_anomaly_score == 0.2
+    assert by_date[date(2026, 4, 16)].count == 3

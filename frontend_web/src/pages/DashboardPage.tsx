@@ -7,6 +7,7 @@ import {
   BrainCircuit,
   LineChart,
   RefreshCw,
+  Settings,
   ShieldAlert,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -19,7 +20,7 @@ import {
   LineChart as RechartsLineChart,
   ReferenceLine,
   ResponsiveContainer,
-  Tooltip,
+  Tooltip as ChartTooltip,
   XAxis,
   YAxis,
 } from 'recharts';
@@ -35,12 +36,63 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { PATHS } from '@/constants/path';
 import { cn } from '@/lib/utils';
 
 type XrChartRow = RbarChartPoint & {
   label: string;
 };
+
+type JisRuleDescriptions = Record<string, string>;
+
+type ViolationRuleDetail = {
+  rule: number;
+  description: string;
+};
+
+const DEFAULT_ANOMALY_SCORE_THRESHOLD = 0.085;
+const ANOMALY_THRESHOLD_STORAGE_KEY = 'manufacturing.anomalyScoreThreshold';
+const ANOMALY_BAR_FILL = '#dc2626';
+const NORMAL_BAR_FILL = 'var(--primary)';
+
+function readStoredAnomalyThreshold(): number {
+  try {
+    const raw = window.localStorage.getItem(ANOMALY_THRESHOLD_STORAGE_KEY);
+    if (raw == null) {
+      return DEFAULT_ANOMALY_SCORE_THRESHOLD;
+    }
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+      return DEFAULT_ANOMALY_SCORE_THRESHOLD;
+    }
+    return parsed;
+  } catch {
+    return DEFAULT_ANOMALY_SCORE_THRESHOLD;
+  }
+}
+
+function writeStoredAnomalyThreshold(value: number) {
+  try {
+    window.localStorage.setItem(ANOMALY_THRESHOLD_STORAGE_KEY, String(value));
+  } catch {
+    // Ignore storage failures (private mode / quota).
+  }
+}
 
 const dateFormatter = new Intl.DateTimeFormat('ja-JP', {
   month: 'numeric',
@@ -103,28 +155,217 @@ function formatViolationRules(alert: ManufacturingAlert) {
   return alert.description;
 }
 
-function DailyCountBarChart({ chart }: { chart: DailyCountChart | null | undefined }) {
+function resolveRuleDescription(
+  rule: number,
+  descriptions: JisRuleDescriptions | undefined,
+  details?: ViolationRuleDetail[]
+) {
+  const fromDetails = details?.find(detail => detail.rule === rule)?.description;
+  if (fromDetails) {
+    return fromDetails;
+  }
+  return descriptions?.[String(rule)] ?? '';
+}
+
+function getAlertRuleDetails(
+  alert: ManufacturingAlert,
+  descriptions: JisRuleDescriptions | undefined
+): ViolationRuleDetail[] {
+  const rawDetails = alert.evidence?.violationRuleDetails;
+  if (Array.isArray(rawDetails)) {
+    return rawDetails
+      .map(item => {
+        if (!item || typeof item !== 'object') {
+          return null;
+        }
+        const record = item as Record<string, unknown>;
+        const rule = Number(record.rule);
+        if (!Number.isFinite(rule)) {
+          return null;
+        }
+        return {
+          rule,
+          description:
+            typeof record.description === 'string'
+              ? record.description
+              : resolveRuleDescription(rule, descriptions),
+        };
+      })
+      .filter((item): item is ViolationRuleDetail => item != null);
+  }
+
+  const rules = alert.evidence?.violationRules;
+  if (Array.isArray(rules)) {
+    return rules
+      .map(rule => Number(rule))
+      .filter(rule => Number.isFinite(rule))
+      .map(rule => ({
+        rule,
+        description: resolveRuleDescription(rule, descriptions),
+      }));
+  }
+
+  return [];
+}
+
+function ViolationRuleChips({
+  rules,
+  descriptions,
+}: {
+  rules: number[];
+  descriptions?: JisRuleDescriptions;
+}) {
+  if (!rules.length) {
+    return null;
+  }
+
+  return (
+    <TooltipProvider delayDuration={150}>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {rules.map(rule => {
+          const description = resolveRuleDescription(rule, descriptions);
+          return (
+            <Tooltip key={rule}>
+              <TooltipTrigger asChild>
+                <span
+                  className={cn(
+                    'inline-flex cursor-help items-center rounded-sm border px-1.5 py-0.5 caption-01',
+                    rule === 1
+                      ? 'border-destructive-foreground/40 bg-destructive/10 text-destructive-foreground'
+                      : 'border-warning/40 bg-warning/10 text-foreground'
+                  )}
+                >
+                  ルール{rule}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs">
+                <div className="font-medium">新JIS ルール{rule}</div>
+                <div className="mt-1 body-secondary">
+                  {description || '説明は未定義です。'}
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+    </TooltipProvider>
+  );
+}
+
+function ViolationRuleDossier({ details }: { details: ViolationRuleDetail[] }) {
+  if (!details.length) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 space-y-1.5 rounded-md border border-dashed border-border/80 bg-muted/40 p-2">
+      {details.map(detail => (
+        <div key={detail.rule} className="flex gap-2 caption-01">
+          <span
+            className={cn(
+              'mt-0.5 size-1.5 shrink-0 rounded-full',
+              detail.rule === 1 ? 'bg-destructive-foreground' : 'bg-warning'
+            )}
+          />
+          <div className="min-w-0">
+            <span className="font-medium">ルール{detail.rule}</span>
+            {detail.description ? (
+              <span className="text-muted-foreground"> — {detail.description}</span>
+            ) : null}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ActiveRulesLegend({
+  alerts,
+  selectedPattern,
+  descriptions,
+}: {
+  alerts: ManufacturingAlert[];
+  selectedPattern: number;
+  descriptions?: JisRuleDescriptions;
+}) {
+  const activeRules = useMemo(() => {
+    const rules = new Set<number>();
+    for (const alert of alerts) {
+      const pattern = alert.evidence?.pattern;
+      if (pattern !== undefined && pattern !== selectedPattern) {
+        continue;
+      }
+      for (const detail of getAlertRuleDetails(alert, descriptions)) {
+        rules.add(detail.rule);
+      }
+    }
+    return [...rules].sort((a, b) => a - b);
+  }, [alerts, descriptions, selectedPattern]);
+
+  if (!activeRules.length) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-md border bg-muted/30 p-3">
+      <div className="mb-2 caption-01 font-medium text-muted-foreground">
+        選択中パターンで発火中のJISルール
+      </div>
+      <div className="space-y-2">
+        {activeRules.map(rule => (
+          <div key={rule} className="flex gap-2 caption-01">
+            <Badge
+              variant={rule === 1 ? 'destructive' : 'warning'}
+              className="h-5 shrink-0 rounded-sm px-1.5"
+            >
+              {rule}
+            </Badge>
+            <span className="text-muted-foreground">
+              {resolveRuleDescription(rule, descriptions) || '説明なし'}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DailyCountBarChart({
+  chart,
+  anomalyThreshold,
+}: {
+  chart: DailyCountChart | null | undefined;
+  anomalyThreshold: number;
+}) {
   if (!chart?.points.length) {
     return null;
   }
 
-  const chartData = chart.points.map(point => ({
-    ...point,
-    label: formatDate(point.date),
-  }));
+  const chartData = chart.points.map(point => {
+    const maxScore =
+      typeof point.maxAnomalyScore === 'number' && Number.isFinite(point.maxAnomalyScore)
+        ? point.maxAnomalyScore
+        : null;
+    return {
+      ...point,
+      label: formatDate(point.date),
+      maxScore,
+      isAnomaly: maxScore != null && maxScore > anomalyThreshold,
+    };
+  });
 
   return (
-    <Card className="rounded-md">
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2">
-          <BarChart3 className="size-5" />
+    <Card className="rounded-md py-3">
+      <CardHeader className="pb-1">
+        <CardTitle className="flex items-center gap-2 text-sm font-medium">
+          <BarChart3 className="size-4" />
           日次データ件数
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div role="img" aria-label="日次データ件数" className="h-56 w-full">
+        <div role="img" aria-label="日次データ件数" className="h-44 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <RechartsBarChart data={chartData} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+            <RechartsBarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <XAxis
                 dataKey="label"
                 tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
@@ -137,16 +378,22 @@ function DailyCountBarChart({ chart }: { chart: DailyCountChart | null | undefin
                 tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
-                width={48}
+                width={40}
               />
-              <Tooltip
+              <ChartTooltip
                 cursor={{ fill: 'var(--muted)', opacity: 0.35 }}
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) {
                     return null;
                   }
                   const point = payload[0]?.payload as
-                    | { date: string; count: number; label: string }
+                    | {
+                        date: string;
+                        count: number;
+                        label: string;
+                        maxScore: number | null;
+                        isAnomaly: boolean;
+                      }
                     | undefined;
                   if (!point) {
                     return null;
@@ -157,11 +404,47 @@ function DailyCountBarChart({ chart }: { chart: DailyCountChart | null | undefin
                         {formatDate(point.date)}
                       </div>
                       <div className="body">件数 {point.count.toLocaleString('ja-JP')}</div>
+                      {point.maxScore != null ? (
+                        <div
+                          className={cn(
+                            'mt-1 caption-01',
+                            point.isAnomaly ? 'text-destructive-foreground' : 'text-muted-foreground'
+                          )}
+                        >
+                          最大異常スコア {point.maxScore.toFixed(4)}
+                          {point.isAnomaly ? '（閾値超過）' : ''}
+                        </div>
+                      ) : null}
                     </div>
                   );
                 }}
               />
-              <Bar dataKey="count" fill="var(--primary)" radius={[2, 2, 0, 0]} maxBarSize={28} />
+              <Bar
+                dataKey="count"
+                maxBarSize={32}
+                isAnimationActive={false}
+                shape={(props: {
+                  x?: number;
+                  y?: number;
+                  width?: number;
+                  height?: number;
+                  payload?: { isAnomaly?: boolean };
+                }) => {
+                  const { x = 0, y = 0, width = 0, height = 0, payload } = props;
+                  if (width <= 0 || height <= 0) {
+                    return <g />;
+                  }
+                  return (
+                    <rect
+                      x={x}
+                      y={y}
+                      width={width}
+                      height={height}
+                      fill={payload?.isAnomaly ? ANOMALY_BAR_FILL : NORMAL_BAR_FILL}
+                    />
+                  );
+                }}
+              />
             </RechartsBarChart>
           </ResponsiveContainer>
         </div>
@@ -174,10 +457,12 @@ function XrControlChart({
   chart,
   metric,
   pattern,
+  jisRuleDescriptions,
 }: {
   chart: RbarChart | null;
   metric: ManufacturingMetric;
   pattern: number;
+  jisRuleDescriptions?: JisRuleDescriptions;
 }) {
   const alertPoint = chart?.points.find(point => point.alertId);
 
@@ -241,7 +526,7 @@ function XrControlChart({
         <div
           role="img"
           aria-label={`${metricLabels[metric]} 吐出パターン${pattern} X管理図`}
-          className="h-72 w-full"
+          className="h-56 w-full"
         >
           <ResponsiveContainer width="100%" height="100%">
             <RechartsLineChart data={chartData} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
@@ -261,7 +546,7 @@ function XrControlChart({
                 width={56}
                 tickFormatter={value => Number(value).toFixed(4)}
               />
-              <Tooltip
+              <ChartTooltip
                 cursor={{ stroke: 'var(--muted-foreground)', strokeDasharray: '4 4' }}
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) {
@@ -276,8 +561,18 @@ function XrControlChart({
                       <div className="font-medium">{point.date}</div>
                       <div className="mt-1">値 {point.value.toFixed(4)}</div>
                       {point.violationRules?.length ? (
-                        <div className="mt-1 text-warning">
-                          違反ルール {point.violationRules.join(',')}
+                        <div className="mt-2 space-y-1 text-warning">
+                          {point.violationRules.map(rule => (
+                            <div key={rule}>
+                              <span className="font-medium">ルール{rule}</span>
+                              {resolveRuleDescription(rule, jisRuleDescriptions) ? (
+                                <span className="text-muted-foreground">
+                                  {' '}
+                                  — {resolveRuleDescription(rule, jisRuleDescriptions)}
+                                </span>
+                              ) : null}
+                            </div>
+                          ))}
                         </div>
                       ) : null}
                     </div>
@@ -383,11 +678,21 @@ function XrControlChart({
           </ResponsiveContainer>
         </div>
         {alertPoint ? (
-          <div className="mt-2 inline-flex rounded-sm bg-muted px-2 py-1 caption-01">
-            {formatDate(alertPoint.date)}
-            {alertPoint.violationRules?.length
-              ? ` 違反ルール ${alertPoint.violationRules.join(',')}`
-              : ''}
+          <div className="mt-2">
+            <div className="inline-flex rounded-sm bg-muted px-2 py-1 caption-01">
+              {formatDate(alertPoint.date)}
+              {alertPoint.violationRules?.length
+                ? ` / 違反ルール ${alertPoint.violationRules.join(',')}`
+                : ''}
+            </div>
+            {alertPoint.violationRules?.length ? (
+              <ViolationRuleDossier
+                details={alertPoint.violationRules.map(rule => ({
+                  rule,
+                  description: resolveRuleDescription(rule, jisRuleDescriptions),
+                }))}
+              />
+            ) : null}
           </div>
         ) : null}
       </CardContent>
@@ -398,9 +703,11 @@ function XrControlChart({
 function AlertList({
   alerts,
   selectedPattern,
+  jisRuleDescriptions,
 }: {
   alerts: ManufacturingAlert[];
   selectedPattern: number;
+  jisRuleDescriptions?: JisRuleDescriptions;
 }) {
   const filtered = alerts.filter(alert => {
     const pattern = alert.evidence?.pattern;
@@ -420,39 +727,47 @@ function AlertList({
   }
 
   return (
-    <div className="space-y-3">
-      {filtered.map(alert => (
-        <Link
-          key={alert.id}
-          to={`${PATHS.CHAT_EMPTY}?alertId=${encodeURIComponent(alert.id)}`}
-          className={cn(
-            'block rounded-md border p-4 no-underline transition-colors hover:bg-muted',
-            alert.severity === 'critical' && 'border-destructive-foreground',
-            alert.severity === 'warning' && 'border-warning'
-          )}
-        >
-          <div className="mb-2 flex items-start justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              {alert.alertType === 'prediction_ai' ? (
-                <BrainCircuit className="size-4 shrink-0 text-primary" />
-              ) : (
-                <ShieldAlert className="size-4 shrink-0 text-warning" />
-              )}
-              <span className="body truncate">{alert.title}</span>
+    <div className="space-y-2">
+      {filtered.map(alert => {
+        const details = getAlertRuleDetails(alert, jisRuleDescriptions);
+        return (
+          <Link
+            key={alert.id}
+            to={`${PATHS.CHAT_EMPTY}?alertId=${encodeURIComponent(alert.id)}`}
+            className={cn(
+              'block rounded-md border p-3 no-underline transition-colors hover:bg-muted',
+              alert.severity === 'critical' && 'border-destructive-foreground',
+              alert.severity === 'warning' && 'border-warning'
+            )}
+          >
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                {alert.alertType === 'prediction_ai' ? (
+                  <BrainCircuit className="size-4 shrink-0 text-primary" />
+                ) : (
+                  <ShieldAlert className="size-4 shrink-0 text-warning" />
+                )}
+                <span className="body truncate">{alert.title}</span>
+              </div>
+              <Badge
+                variant={alert.severity === 'critical' ? 'destructive' : 'warning'}
+                className="rounded-sm"
+              >
+                {alert.severity}
+              </Badge>
             </div>
-            <Badge
-              variant={alert.severity === 'critical' ? 'destructive' : 'warning'}
-              className="rounded-sm"
-            >
-              {alert.severity}
-            </Badge>
-          </div>
-          <div className="caption-01 text-muted-foreground">
-            {metricLabels[alert.metric]} / {formatDate(alert.date)} / 実績 {formatAlertValue(alert)}
-          </div>
-          <div className="mt-1 caption-01 text-muted-foreground">{formatViolationRules(alert)}</div>
-        </Link>
-      ))}
+            <div className="caption-01 text-muted-foreground">
+              {metricLabels[alert.metric]} / {formatDate(alert.date)} / 実績{' '}
+              {formatAlertValue(alert)}
+            </div>
+            <ViolationRuleChips
+              rules={details.map(detail => detail.rule)}
+              descriptions={jisRuleDescriptions}
+            />
+            <ViolationRuleDossier details={details} />
+          </Link>
+        );
+      })}
     </div>
   );
 }
@@ -516,6 +831,7 @@ function AlertDetail({ alertId }: { alertId: string }) {
               : ''}
           </AlertDescription>
         </Alert>
+        <ViolationRuleDossier details={getAlertRuleDetails(alert, undefined)} />
         <div className="rounded-md border p-4">
           <div className="mb-2 flex items-center gap-2 heading-06">
             <RefreshCw className="size-4" />
@@ -532,6 +848,10 @@ export function DashboardPage() {
   const { alertId } = useParams();
   const { data, isLoading, isError } = useManufacturingDashboard();
   const [selectedPattern, setSelectedPattern] = useState<number>(1);
+  const [anomalyThreshold, setAnomalyThreshold] = useState(readStoredAnomalyThreshold);
+  const [thresholdDraft, setThresholdDraft] = useState(() => String(readStoredAnomalyThreshold()));
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [thresholdError, setThresholdError] = useState<string | null>(null);
 
   const availablePatterns = useMemo(() => {
     if (!data) {
@@ -595,9 +915,27 @@ export function DashboardPage() {
     )
   );
 
+  const openSettings = () => {
+    setThresholdDraft(String(anomalyThreshold));
+    setThresholdError(null);
+    setSettingsOpen(true);
+  };
+
+  const submitThreshold = () => {
+    const parsed = Number(thresholdDraft);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+      setThresholdError('0以上1以下の数値を入力してください。');
+      return;
+    }
+    setAnomalyThreshold(parsed);
+    writeStoredAnomalyThreshold(parsed);
+    setThresholdError(null);
+    setSettingsOpen(false);
+  };
+
   return (
     <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <div className="mx-auto flex h-full w-full max-w-7xl min-h-0 flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-full w-full max-w-7xl min-h-0 flex-col gap-3 px-4 py-4 sm:px-6 lg:px-8">
         <header className="flex shrink-0 flex-col gap-3 border-b pb-3 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -616,103 +954,164 @@ export function DashboardPage() {
             </div>
             <h1 className="heading-02">モールド装置 X-R管理図</h1>
           </div>
-          <Button asChild variant="secondary" size="sm" className="w-fit shrink-0">
-            <Link to={PATHS.CHAT_EMPTY}>
-              <ArrowLeft className="size-4" />
-              Chat
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="secondary" size="sm" className="w-fit shrink-0">
+              <Link to={PATHS.CHAT_EMPTY}>
+                <ArrowLeft className="size-4" />
+                Chat
+              </Link>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label="設定"
+              className="shrink-0"
+              onClick={openSettings}
+            >
+              <Settings className="size-4" />
+            </Button>
+          </div>
         </header>
 
-        <section className="grid shrink-0 gap-3 md:grid-cols-2">
-          <Card className="rounded-md">
-            <CardContent className="flex items-start gap-3 p-4">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
-                <ShieldAlert className="size-5 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <div className="caption-01">業務アラート（全体）</div>
-                <div data-testid="business-alert-count" className="heading-03 mt-1">
+        <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>設定</DialogTitle>
+              <DialogDescription>
+                異常スコア閾値を超える日の棒グラフを赤く表示します。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 py-2">
+              <label htmlFor="anomaly-score-threshold" className="caption-01 text-muted-foreground">
+                異常スコア閾値
+              </label>
+              <Input
+                id="anomaly-score-threshold"
+                type="number"
+                step="0.001"
+                min={0}
+                max={1}
+                value={thresholdDraft}
+                onChange={event => {
+                  setThresholdDraft(event.target.value);
+                  setThresholdError(null);
+                }}
+                aria-invalid={Boolean(thresholdError)}
+              />
+              {thresholdError ? (
+                <p className="caption-01 text-destructive-foreground">{thresholdError}</p>
+              ) : (
+                <p className="caption-01 text-muted-foreground">
+                  現在の閾値: {anomalyThreshold}
+                </p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={() => setSettingsOpen(false)}>
+                キャンセル
+              </Button>
+              <Button type="button" onClick={submitThreshold}>
+                適用
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <section className="grid min-h-0 flex-1 gap-3 overflow-hidden lg:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.85fr)]">
+          <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
+            <div className="shrink-0">
+              <DailyCountBarChart
+                chart={dashboard.dailyCountChart}
+                anomalyThreshold={anomalyThreshold}
+              />
+            </div>
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-2">
+              {!hasAnyChart ? (
+                <Alert className="rounded-md">
+                  <AlertCircle />
+                  <AlertTitle>X管理図データなし</AlertTitle>
+                  <AlertDescription>
+                    吐出パターン{selectedPattern}の管理図データがありません。
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                xrMetricOptions.map(metric => {
+                  const chart =
+                    dashboard.xrCharts?.[metric]?.[String(selectedPattern)] ??
+                    (selectedPattern === 1 ? (dashboard.rbarCharts?.[metric] ?? null) : null);
+                  return (
+                    <XrControlChart
+                      key={metric}
+                      chart={chart}
+                      metric={metric}
+                      pattern={selectedPattern}
+                      jisRuleDescriptions={dashboard.jisRuleDescriptions}
+                    />
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
+            <Card className="shrink-0 rounded-md py-3">
+              <CardContent className="px-4 py-1">
+                <div className="caption-01 text-muted-foreground">業務アラート（全体）</div>
+                <div data-testid="business-alert-count" className="heading-03 mt-2">
                   {dashboard.summary.businessRuleAlertCount}件
                 </div>
-                <div className="caption-01 mt-1">新JIS 違反ルール検知</div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="rounded-md">
-            <CardContent className="flex items-start gap-3 p-4">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
-                <LineChart className="size-5 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <div className="caption-01">選択中のアラート</div>
-                <div className="heading-03 mt-1">{filteredAlertCount}件</div>
-                <div className="caption-01 mt-1">吐出パターン{selectedPattern}</div>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <label className="flex items-center gap-2 caption-01 text-muted-foreground">
-            吐出パターン番号
-            <select
-              aria-label="吐出パターン番号"
-              className="h-7 rounded-sm border bg-background px-2 text-sm"
-              value={selectedPattern}
-              onChange={event => setSelectedPattern(Number(event.target.value))}
-            >
-              {availablePatterns.map(pattern => (
-                <option key={pattern} value={pattern}>
-                  {pattern}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <section className="grid min-h-0 flex-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.8fr)]">
-          <div className="flex flex-col gap-4 pb-4">
-            <DailyCountBarChart chart={dashboard.dailyCountChart} />
-            {!hasAnyChart ? (
-              <Alert className="rounded-md">
-                <AlertCircle />
-                <AlertTitle>X管理図データなし</AlertTitle>
-                <AlertDescription>
-                  吐出パターン{selectedPattern}の管理図データがありません。
-                </AlertDescription>
-              </Alert>
-            ) : (
-              xrMetricOptions.map(metric => {
-                const chart =
-                  dashboard.xrCharts?.[metric]?.[String(selectedPattern)] ??
-                  (selectedPattern === 1 ? (dashboard.rbarCharts?.[metric] ?? null) : null);
-                return (
-                  <XrControlChart
-                    key={metric}
-                    chart={chart}
-                    metric={metric}
-                    pattern={selectedPattern}
-                  />
-                );
-              })
-            )}
-          </div>
-          {alertId ? (
-            <AlertDetail alertId={alertId} />
-          ) : (
-            <Card className="rounded-md self-start">
-              <CardHeader className="pb-2">
-                <CardTitle>業務アラート一覧</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <AlertList
-                  alerts={dashboard.alerts ?? []}
-                  selectedPattern={selectedPattern}
-                />
               </CardContent>
             </Card>
-          )}
+            <label className="flex shrink-0 items-center gap-2 caption-01 text-muted-foreground">
+              吐出パターン番号
+              <select
+                aria-label="吐出パターン番号"
+                className="h-7 rounded-sm border bg-background px-2 text-sm"
+                value={selectedPattern}
+                onChange={event => setSelectedPattern(Number(event.target.value))}
+              >
+                {availablePatterns.map(pattern => (
+                  <option key={pattern} value={pattern}>
+                    {pattern}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Card className="shrink-0 rounded-md py-3">
+              <CardContent className="px-4 py-1">
+                <div className="caption-01 text-muted-foreground">選択中のアラート</div>
+                <div className="heading-03 mt-2">{filteredAlertCount}件</div>
+              </CardContent>
+            </Card>
+
+            <div className="shrink-0">
+              <ActiveRulesLegend
+                alerts={dashboard.alerts ?? []}
+                selectedPattern={selectedPattern}
+                descriptions={dashboard.jisRuleDescriptions}
+              />
+            </div>
+
+            {alertId ? (
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <AlertDetail alertId={alertId} />
+              </div>
+            ) : (
+              <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md py-3">
+                <CardHeader className="shrink-0 pb-2">
+                  <CardTitle className="text-sm font-medium">業務アラート一覧</CardTitle>
+                </CardHeader>
+                <CardContent className="min-h-0 flex-1 overflow-y-auto pb-4">
+                  <AlertList
+                    alerts={dashboard.alerts ?? []}
+                    selectedPattern={selectedPattern}
+                    jisRuleDescriptions={dashboard.jisRuleDescriptions}
+                  />
+                </CardContent>
+              </Card>
+            )}
+          </div>
         </section>
       </div>
     </main>

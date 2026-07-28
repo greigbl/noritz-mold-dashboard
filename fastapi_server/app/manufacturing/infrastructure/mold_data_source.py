@@ -25,6 +25,11 @@ from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
 
+from app.manufacturing.config import (
+    DETECTION_DAYS as CONFIG_DETECTION_DAYS,
+    JIS_RULES_DESCRIPTION,
+    PLOT_DAYS as CONFIG_PLOT_DAYS,
+)
 from app.manufacturing.domain.models import (
     DailyCountChart,
     DailyCountPoint,
@@ -38,10 +43,16 @@ from app.manufacturing.domain.models import (
 MOLD_DATA_DIR = Path(__file__).parents[1] / "data" / "mold"
 MOLD_DATA_DIR_ENV = "MOLD_DASHBOARD_DATA_DIR"
 
-PLOT_DAYS = 30
-DETECTION_DAYS = 7
+PLOT_DAYS = CONFIG_PLOT_DAYS
+DETECTION_DAYS = CONFIG_DETECTION_DAYS
 BUSINESS_RULE_ID = "jis.xr.violation_rules"
 RULE_VERSION = "1.0.0"
+DEFAULT_ANOMALY_SCORE_THRESHOLD = 0.085
+EXCEL_SERIAL_EPOCH = date(1899, 12, 30)
+PREDICTION_CSV_GLOB = "*_features_予測結果.csv"
+
+# Cache parsed max anomaly scores keyed by resolved CSV path + mtime.
+_anomaly_score_cache: dict[str, dict[date, float]] = {}
 
 # Pipeline Japanese column -> API metric key
 TARGET_COLUMN_TO_METRIC: dict[str, MetricName] = {
@@ -72,17 +83,6 @@ METRIC_LABELS: dict[MetricName, str] = {
     "b_mix_ratio_speed": "B剤配合比速度",
     "production_flow_rate": "生産総合流速",
     "production_discharge_time": "生産吐出時間",
-}
-
-JIS_RULES_DESCRIPTION = {
-    1: "領域A超過（管理限界超過）",
-    2: "連続9点が中心線の同一側",
-    3: "連続6点の単調増減トレンド",
-    4: "連続14点が交互に増減",
-    5: "連続3点中2点以上が領域A（±2σ超過）",
-    6: "連続5点中4点以上が領域B（±1σ超過）",
-    7: "連続15点が領域C内（±1σ以内）",
-    8: "連続8点が領域C超過（±1σ超過）",
 }
 
 MOLD_METRICS: tuple[MetricName, ...] = tuple(TARGET_COLUMN_TO_METRIC.values())
@@ -147,11 +147,92 @@ def load_daily_counts(data_dir: Path | None = None) -> DailyCountChart | None:
     with path.open(encoding="utf-8") as handle:
         payload = json.load(handle)
     daily_counts = payload.get("daily_counts") or {}
+    max_scores = load_daily_max_anomaly_scores(data_dir)
     points = [
-        DailyCountPoint(date=date.fromisoformat(day), count=int(count))
+        DailyCountPoint(
+            date=date.fromisoformat(day),
+            count=int(count),
+            max_anomaly_score=max_scores.get(date.fromisoformat(day)),
+        )
         for day, count in sorted(daily_counts.items())
     ]
-    return DailyCountChart(points=points)
+    return DailyCountChart(
+        points=points,
+        anomaly_score_threshold=DEFAULT_ANOMALY_SCORE_THRESHOLD,
+    )
+
+
+def find_prediction_csv(data_dir: Path | None = None) -> Path | None:
+    root = data_dir or get_mold_data_dir()
+    matches = sorted(root.glob(PREDICTION_CSV_GLOB))
+    return matches[0] if matches else None
+
+
+def parse_production_day(raw: str) -> date | None:
+    """Parse 生産日 as ISO date or Excel serial day number."""
+    value = (raw or "").strip()
+    if not value:
+        return None
+    if "T" in value:
+        value = value.split("T", 1)[0]
+    if len(value) >= 10 and value[4] == "-" and value[7] == "-":
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return None
+    try:
+        serial = float(value)
+    except ValueError:
+        return None
+    try:
+        return EXCEL_SERIAL_EPOCH + timedelta(days=int(serial))
+    except OverflowError:
+        return None
+
+
+def load_daily_max_anomaly_scores(data_dir: Path | None = None) -> dict[date, float]:
+    """Return max ANOMALY_SCORE per 生産日 from the prediction results CSV."""
+    path = find_prediction_csv(data_dir)
+    if path is None:
+        return {}
+
+    cache_key = f"{path.resolve()}:{path.stat().st_mtime_ns}"
+    cached = _anomaly_score_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    max_scores: dict[date, float] = {}
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.reader(handle)
+        try:
+            header = next(reader)
+        except StopIteration:
+            _anomaly_score_cache[cache_key] = max_scores
+            return max_scores
+
+        try:
+            score_idx = header.index("ANOMALY_SCORE")
+            date_idx = header.index("生産日")
+        except ValueError:
+            _anomaly_score_cache[cache_key] = max_scores
+            return max_scores
+
+        for row in reader:
+            if len(row) <= max(score_idx, date_idx):
+                continue
+            day = parse_production_day(row[date_idx])
+            if day is None:
+                continue
+            try:
+                score = float(row[score_idx])
+            except ValueError:
+                continue
+            current = max_scores.get(day)
+            if current is None or score > current:
+                max_scores[day] = score
+
+    _anomaly_score_cache[cache_key] = max_scores
+    return max_scores
 
 
 def classify_phase2_csv_rows(
@@ -318,6 +399,13 @@ def build_xr_charts_and_alerts(
                                 "pattern": pattern,
                                 "violationRules": violation_rules,
                                 "violationRulesStr": anomaly["rules_str"],
+                                "violationRuleDetails": [
+                                    {
+                                        "rule": rule,
+                                        "description": JIS_RULES_DESCRIPTION.get(rule, ""),
+                                    }
+                                    for rule in violation_rules
+                                ],
                                 "ucl": float(anomaly["ucl"]),
                                 "lcl": float(anomaly["lcl"]),
                                 "cl": float(anomaly["cl"]),
@@ -474,5 +562,9 @@ class MoldDashboardProvider:
             xr_charts=xr_charts,
             available_patterns=patterns,
             daily_count_chart=load_daily_counts(),
+            jis_rule_descriptions={
+                str(rule): description
+                for rule, description in JIS_RULES_DESCRIPTION.items()
+            },
             alerts=alerts,
         )

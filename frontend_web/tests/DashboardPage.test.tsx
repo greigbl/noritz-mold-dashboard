@@ -191,27 +191,31 @@ describe('DashboardPage', () => {
     expect(screen.getByText('業務アラート（全体）')).toBeInTheDocument();
     expect(screen.getByText('1件', { selector: '[data-testid="business-alert-count"]' }));
     expect(screen.getByText('A剤流圧 X管理図')).toBeInTheDocument();
+    expect(screen.getByText('B剤流圧 X管理図')).toBeInTheDocument();
     expect(screen.getByLabelText('吐出パターン番号')).toBeInTheDocument();
   });
 
-  it('switches metric and pattern selectors', async () => {
+  it('switches pattern and updates all feature charts', async () => {
     server.use(
       http.get('*/api/v1/manufacturing/dashboard', () => HttpResponse.json(dashboardResponse))
     );
 
     renderDashboard();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'B剤流圧' }));
-    expect(screen.getByText('B剤流圧 X管理図')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('img', { name: 'A剤流圧 吐出パターン1 X管理図' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('img', { name: 'B剤流圧 吐出パターン1 X管理図' })
+    ).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('吐出パターン番号'), { target: { value: '6' } });
-    // Pattern 6 is only available for A剤; B剤 falls back / effect resets.
-    // Switch back to A剤 and select pattern 6.
-    fireEvent.click(screen.getByRole('button', { name: 'A剤流圧' }));
-    fireEvent.change(screen.getByLabelText('吐出パターン番号'), { target: { value: '6' } });
+
     expect(
       screen.getByRole('img', { name: 'A剤流圧 吐出パターン6 X管理図' })
     ).toBeInTheDocument();
+    // B剤 has no pattern 6 — empty state for that feature
+    expect(screen.getAllByText('X管理図データなし').length).toBeGreaterThan(0);
   });
 
   it('renders empty state when chart data is unavailable', async () => {

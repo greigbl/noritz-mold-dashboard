@@ -101,18 +101,12 @@ function formatViolationRules(alert: ManufacturingAlert) {
 
 function XrControlChart({
   chart,
-  selectedMetric,
-  onMetricChange,
-  selectedPattern,
-  onPatternChange,
-  availablePatterns,
+  metric,
+  pattern,
 }: {
   chart: RbarChart | null;
-  selectedMetric: ManufacturingMetric;
-  onMetricChange: (metric: ManufacturingMetric) => void;
-  selectedPattern: number;
-  onPatternChange: (pattern: number) => void;
-  availablePatterns: number[];
+  metric: ManufacturingMetric;
+  pattern: number;
 }) {
   const alertPoint = chart?.points.find(point => point.alertId);
 
@@ -120,49 +114,17 @@ function XrControlChart({
     return (
       <Card className="rounded-md">
         <CardHeader className="pb-2">
-          <div className="flex flex-col gap-3">
-            <CardTitle className="flex items-center gap-2">
-              <LineChart className="size-5" />
-              {metricLabels[selectedMetric]} X管理図
-            </CardTitle>
-            <div className="flex flex-wrap gap-1" aria-label="XR metric selector">
-              {xrMetricOptions.map(metric => (
-                <Button
-                  key={metric}
-                  type="button"
-                  size="sm"
-                  variant={selectedMetric === metric ? 'primary' : 'secondary'}
-                  aria-pressed={selectedMetric === metric}
-                  onClick={() => onMetricChange(metric)}
-                  className="h-7 rounded-sm px-2 text-xs"
-                >
-                  {metricLabels[metric]}
-                </Button>
-              ))}
-            </div>
-            <label className="flex w-fit items-center gap-2 caption-01">
-              吐出パターン番号
-              <select
-                aria-label="吐出パターン番号"
-                className="h-8 rounded-sm border bg-background px-2 text-sm"
-                value={selectedPattern}
-                onChange={event => onPatternChange(Number(event.target.value))}
-              >
-                {availablePatterns.map(pattern => (
-                  <option key={pattern} value={pattern}>
-                    {pattern}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+          <CardTitle className="flex items-center gap-2">
+            <LineChart className="size-5" />
+            {metricLabels[metric]} X管理図
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <Alert className="rounded-md">
             <AlertCircle />
             <AlertTitle>X管理図データなし</AlertTitle>
             <AlertDescription>
-              選択中の特徴量 / 吐出パターン番号の管理図データがありません。
+              吐出パターン{pattern}の管理図データがありません。
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -199,47 +161,15 @@ function XrControlChart({
   return (
     <Card className="rounded-md">
       <CardHeader className="pb-2">
-        <div className="flex flex-col gap-3">
-          <CardTitle className="flex items-center gap-2">
-            <LineChart className="size-5" />
-            {metricLabels[selectedMetric]} X管理図
-          </CardTitle>
-          <div className="flex flex-wrap gap-1" aria-label="XR metric selector">
-            {xrMetricOptions.map(metric => (
-              <Button
-                key={metric}
-                type="button"
-                size="sm"
-                variant={selectedMetric === metric ? 'primary' : 'secondary'}
-                aria-pressed={selectedMetric === metric}
-                onClick={() => onMetricChange(metric)}
-                className="h-7 rounded-sm px-2 text-xs"
-              >
-                {metricLabels[metric]}
-              </Button>
-            ))}
-          </div>
-          <label className="flex w-fit items-center gap-2 caption-01">
-            吐出パターン番号
-            <select
-              aria-label="吐出パターン番号"
-              className="h-8 rounded-sm border bg-background px-2 text-sm"
-              value={selectedPattern}
-              onChange={event => onPatternChange(Number(event.target.value))}
-            >
-              {availablePatterns.map(pattern => (
-                <option key={pattern} value={pattern}>
-                  {pattern}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <CardTitle className="flex items-center gap-2">
+          <LineChart className="size-5" />
+          {metricLabels[metric]} X管理図
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <div
           role="img"
-          aria-label={`${metricLabels[selectedMetric]} 吐出パターン${selectedPattern} X管理図`}
+          aria-label={`${metricLabels[metric]} 吐出パターン${pattern} X管理図`}
           className="h-72 w-full"
         >
           <ResponsiveContainer width="100%" height="100%">
@@ -253,11 +183,12 @@ function XrControlChart({
               />
               <YAxis
                 domain={[domainMin, domainMax]}
+                ticks={[chart.lcl, chart.centerLine, chart.ucl]}
                 tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
                 width={56}
-                tickFormatter={value => Number(value).toFixed(3)}
+                tickFormatter={value => Number(value).toFixed(4)}
               />
               <Tooltip
                 cursor={{ stroke: 'var(--muted-foreground)', strokeDasharray: '4 4' }}
@@ -395,17 +326,12 @@ function XrControlChart({
 
 function AlertList({
   alerts,
-  selectedMetric,
   selectedPattern,
 }: {
   alerts: ManufacturingAlert[];
-  selectedMetric: ManufacturingMetric;
   selectedPattern: number;
 }) {
   const filtered = alerts.filter(alert => {
-    if (alert.metric !== selectedMetric) {
-      return false;
-    }
     const pattern = alert.evidence?.pattern;
     return pattern === undefined || pattern === selectedPattern;
   });
@@ -416,7 +342,7 @@ function AlertList({
         <AlertCircle />
         <AlertTitle>アラートなし</AlertTitle>
         <AlertDescription>
-          選択中の特徴量 / 吐出パターンで検知された業務アラートはありません。
+          吐出パターン{selectedPattern}で検知された業務アラートはありません。
         </AlertDescription>
       </Alert>
     );
@@ -534,24 +460,26 @@ function AlertDetail({ alertId }: { alertId: string }) {
 export function DashboardPage() {
   const { alertId } = useParams();
   const { data, isLoading, isError } = useManufacturingDashboard();
-  const [selectedMetric, setSelectedMetric] = useState<ManufacturingMetric>(
-    'a_agent_flow_pressure'
-  );
   const [selectedPattern, setSelectedPattern] = useState<number>(1);
 
   const availablePatterns = useMemo(() => {
     if (!data) {
       return [1];
     }
-    const fromMetric = Object.keys(data.xrCharts?.[selectedMetric] ?? {})
-      .map(Number)
-      .filter(Number.isFinite)
-      .sort((a, b) => a - b);
-    if (fromMetric.length) {
-      return fromMetric;
+    if (data.availablePatterns?.length) {
+      return [...data.availablePatterns].sort((a, b) => a - b);
     }
-    return data.availablePatterns?.length ? data.availablePatterns : [1];
-  }, [data, selectedMetric]);
+    const fromCharts = new Set<number>();
+    for (const metricCharts of Object.values(data.xrCharts ?? {})) {
+      for (const patternKey of Object.keys(metricCharts ?? {})) {
+        const pattern = Number(patternKey);
+        if (Number.isFinite(pattern)) {
+          fromCharts.add(pattern);
+        }
+      }
+    }
+    return fromCharts.size ? [...fromCharts].sort((a, b) => a - b) : [1];
+  }, [data]);
 
   useEffect(() => {
     if (!availablePatterns.includes(selectedPattern)) {
@@ -584,24 +512,22 @@ export function DashboardPage() {
     );
   }
 
-  const selectedChart =
-    dashboard.xrCharts?.[selectedMetric]?.[String(selectedPattern)] ??
-    dashboard.rbarCharts?.[selectedMetric] ??
-    dashboard.rbarChart ??
-    null;
-
   const filteredAlertCount = (dashboard.alerts ?? []).filter(alert => {
-    if (alert.metric !== selectedMetric) {
-      return false;
-    }
     const pattern = alert.evidence?.pattern;
     return pattern === undefined || pattern === selectedPattern;
   }).length;
 
+  const hasAnyChart = xrMetricOptions.some(metric =>
+    Boolean(
+      dashboard.xrCharts?.[metric]?.[String(selectedPattern)] ??
+        dashboard.rbarCharts?.[metric]
+    )
+  );
+
   return (
-    <main className="min-h-svh flex-1 overflow-auto bg-background">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
-        <header className="flex flex-col gap-4 border-b pb-5 md:flex-row md:items-center md:justify-between">
+    <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      <div className="mx-auto flex h-full w-full max-w-7xl min-h-0 flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
+        <header className="flex shrink-0 flex-col gap-3 border-b pb-3 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <Badge className="rounded-sm">
@@ -626,7 +552,7 @@ export function DashboardPage() {
           </Button>
         </header>
 
-        <section className="grid gap-3 md:grid-cols-2">
+        <section className="grid shrink-0 gap-3 md:grid-cols-2">
           <Card className="rounded-md">
             <CardContent className="flex items-start gap-3 p-4">
               <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
@@ -649,34 +575,66 @@ export function DashboardPage() {
               <div className="min-w-0">
                 <div className="caption-01">選択中のアラート</div>
                 <div className="heading-03 mt-1">{filteredAlertCount}件</div>
-                <div className="caption-01 mt-1">
-                  {metricLabels[selectedMetric]} / パターン{selectedPattern}
-                </div>
+                <div className="caption-01 mt-1">吐出パターン{selectedPattern}</div>
               </div>
             </CardContent>
           </Card>
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.8fr)]">
-          <XrControlChart
-            chart={selectedChart}
-            selectedMetric={selectedMetric}
-            onMetricChange={setSelectedMetric}
-            selectedPattern={selectedPattern}
-            onPatternChange={setSelectedPattern}
-            availablePatterns={availablePatterns}
-          />
+        <div className="flex shrink-0 items-center gap-2">
+          <label className="flex items-center gap-2 caption-01 text-muted-foreground">
+            吐出パターン番号
+            <select
+              aria-label="吐出パターン番号"
+              className="h-7 rounded-sm border bg-background px-2 text-sm"
+              value={selectedPattern}
+              onChange={event => setSelectedPattern(Number(event.target.value))}
+            >
+              {availablePatterns.map(pattern => (
+                <option key={pattern} value={pattern}>
+                  {pattern}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <section className="grid min-h-0 flex-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.8fr)]">
+          <div className="flex flex-col gap-4 pb-4">
+            {!hasAnyChart ? (
+              <Alert className="rounded-md">
+                <AlertCircle />
+                <AlertTitle>X管理図データなし</AlertTitle>
+                <AlertDescription>
+                  吐出パターン{selectedPattern}の管理図データがありません。
+                </AlertDescription>
+              </Alert>
+            ) : (
+              xrMetricOptions.map(metric => {
+                const chart =
+                  dashboard.xrCharts?.[metric]?.[String(selectedPattern)] ??
+                  (selectedPattern === 1 ? (dashboard.rbarCharts?.[metric] ?? null) : null);
+                return (
+                  <XrControlChart
+                    key={metric}
+                    chart={chart}
+                    metric={metric}
+                    pattern={selectedPattern}
+                  />
+                );
+              })
+            )}
+          </div>
           {alertId ? (
             <AlertDetail alertId={alertId} />
           ) : (
-            <Card className="rounded-md">
+            <Card className="rounded-md self-start">
               <CardHeader className="pb-2">
                 <CardTitle>業務アラート一覧</CardTitle>
               </CardHeader>
               <CardContent>
                 <AlertList
                   alerts={dashboard.alerts ?? []}
-                  selectedMetric={selectedMetric}
                   selectedPattern={selectedPattern}
                 />
               </CardContent>

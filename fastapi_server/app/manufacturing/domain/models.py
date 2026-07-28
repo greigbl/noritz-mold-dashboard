@@ -151,6 +151,15 @@ class RbarChart(ManufacturingBaseModel):
     points: list[RbarChartPoint]
 
 
+class DailyCountPoint(ManufacturingBaseModel):
+    date: date
+    count: int
+
+
+class DailyCountChart(ManufacturingBaseModel):
+    points: list[DailyCountPoint]
+
+
 class ManufacturingDashboard(ManufacturingBaseModel):
     prediction_status: PredictionStatus
     range: ManufacturingRange
@@ -161,6 +170,7 @@ class ManufacturingDashboard(ManufacturingBaseModel):
     # metric -> pattern(str) -> chart for mold X-R dual selection
     xr_charts: dict[MetricName, dict[str, RbarChart]] = Field(default_factory=dict)
     available_patterns: list[int] = Field(default_factory=list)
+    daily_count_chart: DailyCountChart | None = None
     alerts: list[ManufacturingAlert]
 
 

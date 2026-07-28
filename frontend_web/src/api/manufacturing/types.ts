@@ -118,6 +118,15 @@ export type RbarChart = {
   points: RbarChartPoint[];
 };
 
+export type DailyCountPoint = {
+  date: string;
+  count: number;
+};
+
+export type DailyCountChart = {
+  points: DailyCountPoint[];
+};
+
 export type ManufacturingDashboard = {
   predictionStatus: PredictionStatus;
   range: ManufacturingRange;
@@ -127,5 +136,6 @@ export type ManufacturingDashboard = {
   rbarCharts?: Partial<Record<ManufacturingMetric, RbarChart>>;
   xrCharts?: Partial<Record<ManufacturingMetric, Record<string, RbarChart>>>;
   availablePatterns?: number[];
+  dailyCountChart?: DailyCountChart | null;
   alerts?: ManufacturingAlert[];
 };

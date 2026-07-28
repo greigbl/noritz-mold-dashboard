@@ -622,3 +622,6 @@ def test_upload_manufacturing_dashboard_from_monthly_chunks(
     assert data["summary"]["businessRuleAlertCount"] > 0
     assert len(data["alerts"]) > 0
     assert data["availablePatterns"]
+    assert data["dailyCountChart"] is not None
+    assert len(data["dailyCountChart"]["points"]) > 0
+    assert "count" in data["dailyCountChart"]["points"][0]

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
@@ -158,6 +158,13 @@ const dashboardResponse = {
     },
   },
   availablePatterns: [1, 6],
+  dailyCountChart: {
+    points: [
+      { date: '2026-04-15', count: 1194 },
+      { date: '2026-04-16', count: 1225 },
+      { date: '2026-04-21', count: 1895 },
+    ],
+  },
   alerts: [businessAlert],
 };
 
@@ -179,52 +186,32 @@ function renderDashboard(initialEntries = ['/dashboard']) {
   );
 }
 
-async function uploadDashboardCsv() {
-  server.use(
-    http.post('*/api/v1/manufacturing/dashboard/upload', () =>
-      HttpResponse.json(dashboardResponse)
-    )
-  );
-
-  const input = screen.getByLabelText('CSVファイルをアップロード').parentElement?.querySelector(
-    'input[type="file"]'
-  ) as HTMLInputElement;
-  const file = new File(['吐出パターン番号,注入開始日,平均\n'], 'phase2_daily_stats_2026-04.csv', {
-    type: 'text/csv',
-  });
-  fireEvent.change(input, { target: { files: [file] } });
-  await waitFor(() => {
-    expect(screen.getByText('A剤流圧 X管理図')).toBeInTheDocument();
-  });
-}
-
 describe('DashboardPage', () => {
-  it('starts empty until CSV is uploaded', async () => {
+  it('renders mold X-R dashboard with business alerts', async () => {
+    server.use(
+      http.get('*/api/v1/manufacturing/dashboard', () => HttpResponse.json(dashboardResponse))
+    );
+
     renderDashboard();
 
     expect(await screen.findByText('モールド装置 X-R管理図')).toBeInTheDocument();
-    expect(screen.getByText('CSVをアップロードしてください')).toBeInTheDocument();
-    expect(screen.getByTestId('business-alert-count')).toHaveTextContent('—');
-    expect(screen.getByLabelText('CSVファイルをアップロード')).toBeInTheDocument();
-  });
-
-  it('renders mold X-R dashboard after upload', async () => {
-    renderDashboard();
-    await uploadDashboardCsv();
-
     expect(screen.getByText('業務アラート（全体）')).toBeInTheDocument();
     expect(screen.getByText('1件', { selector: '[data-testid="business-alert-count"]' }));
+    expect(screen.getByLabelText('日次データ件数')).toBeInTheDocument();
     expect(screen.getByText('A剤流圧 X管理図')).toBeInTheDocument();
     expect(screen.getByText('B剤流圧 X管理図')).toBeInTheDocument();
     expect(screen.getByLabelText('吐出パターン番号')).toBeInTheDocument();
   });
 
   it('switches pattern and updates all feature charts', async () => {
+    server.use(
+      http.get('*/api/v1/manufacturing/dashboard', () => HttpResponse.json(dashboardResponse))
+    );
+
     renderDashboard();
-    await uploadDashboardCsv();
 
     expect(
-      screen.getByRole('img', { name: 'A剤流圧 吐出パターン1 X管理図' })
+      await screen.findByRole('img', { name: 'A剤流圧 吐出パターン1 X管理図' })
     ).toBeInTheDocument();
     expect(
       screen.getByRole('img', { name: 'B剤流圧 吐出パターン1 X管理図' })
@@ -238,11 +225,39 @@ describe('DashboardPage', () => {
     expect(screen.getAllByText('X管理図データなし').length).toBeGreaterThan(0);
   });
 
-  it('navigates to chat with the alert id when an alert is clicked', async () => {
-    renderDashboard();
-    await uploadDashboardCsv();
+  it('renders empty state when chart data is unavailable', async () => {
+    server.use(
+      http.get('*/api/v1/manufacturing/dashboard', () =>
+        HttpResponse.json({
+          ...dashboardResponse,
+          summary: {
+            ...dashboardResponse.summary,
+            alertCount: 0,
+            businessRuleAlertCount: 0,
+            criticalAlertCount: 0,
+          },
+          rbarChart: null,
+          rbarCharts: {},
+          xrCharts: {},
+          alerts: [],
+        })
+      )
+    );
 
-    fireEvent.click(screen.getByRole('link', { name: /JIS管理図違反/ }));
+    renderDashboard();
+
+    expect(await screen.findByText('モールド装置 X-R管理図')).toBeInTheDocument();
+    expect(screen.getByText('X管理図データなし')).toBeInTheDocument();
+  });
+
+  it('navigates to chat with the alert id when an alert is clicked', async () => {
+    server.use(
+      http.get('*/api/v1/manufacturing/dashboard', () => HttpResponse.json(dashboardResponse))
+    );
+
+    renderDashboard();
+
+    fireEvent.click(await screen.findByRole('link', { name: /JIS管理図違反/ }));
 
     expect(await screen.findByText('Chat target')).toBeInTheDocument();
   });

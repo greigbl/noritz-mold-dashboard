@@ -26,6 +26,8 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from app.manufacturing.domain.models import (
+    DailyCountChart,
+    DailyCountPoint,
     ManufacturingAlert,
     ManufacturingDailyRecord,
     MetricName,
@@ -136,6 +138,20 @@ def load_anomalies(data_dir: Path | None = None) -> list[dict[str, str]]:
         return []
     with path.open(encoding="utf-8-sig", newline="") as handle:
         return [dict(row) for row in csv.DictReader(handle)]
+
+
+def load_daily_counts(data_dir: Path | None = None) -> DailyCountChart | None:
+    path = (data_dir or get_mold_data_dir()) / "phase3_daily_data_counts.json"
+    if not path.exists():
+        return None
+    with path.open(encoding="utf-8") as handle:
+        payload = json.load(handle)
+    daily_counts = payload.get("daily_counts") or {}
+    points = [
+        DailyCountPoint(date=date.fromisoformat(day), count=int(count))
+        for day, count in sorted(daily_counts.items())
+    ]
+    return DailyCountChart(points=points)
 
 
 def classify_phase2_csv_rows(
@@ -457,5 +473,6 @@ class MoldDashboardProvider:
             rbar_charts=rbar_charts,
             xr_charts=xr_charts,
             available_patterns=patterns,
+            daily_count_chart=load_daily_counts(),
             alerts=alerts,
         )

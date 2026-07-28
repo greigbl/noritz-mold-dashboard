@@ -5,28 +5,6 @@ export async function getManufacturingDashboard({ signal }: { signal: AbortSigna
   return apiClient.get<ManufacturingDashboard>('/v1/manufacturing/dashboard', { signal });
 }
 
-export async function uploadManufacturingDashboard({
-  files,
-  signal,
-}: {
-  files: File[];
-  signal?: AbortSignal;
-}) {
-  const formData = new FormData();
-  for (const file of files) {
-    formData.append('files', file);
-  }
-  // Drop the default application/json Content-Type so the browser sets
-  // multipart/form-data with the correct boundary.
-  return apiClient.post<ManufacturingDashboard>('/v1/manufacturing/dashboard/upload', formData, {
-    signal,
-    headers: {
-      'Content-Type': undefined,
-      'Content-type': undefined,
-    },
-  });
-}
-
 export async function getManufacturingAlert({
   alertId,
   signal,

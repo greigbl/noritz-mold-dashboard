@@ -7,8 +7,9 @@ import {
   LineChart,
   RefreshCw,
   ShieldAlert,
+  Upload,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   Dot,
@@ -20,9 +21,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { useManufacturingAlert, useManufacturingDashboard } from '@/api/manufacturing/hooks';
+import {
+  useManufacturingAlert,
+  useUploadManufacturingDashboard,
+} from '@/api/manufacturing/hooks';
 import type {
   ManufacturingAlert,
+  ManufacturingDashboard,
   ManufacturingMetric,
   RbarChart,
   RbarChartPoint,
@@ -97,6 +102,123 @@ function formatViolationRules(alert: ManufacturingAlert) {
     return `違反ルール ${raw}`;
   }
   return alert.description;
+}
+
+function formatUploadError(error: unknown): string | null {
+  if (!error) {
+    return null;
+  }
+  const err = error as {
+    response?: { data?: { detail?: unknown } };
+    message?: string;
+  };
+  const detail = err.response?.data?.detail;
+  if (typeof detail === 'string') {
+    return detail;
+  }
+  if (Array.isArray(detail)) {
+    return detail
+      .map(item => {
+        if (typeof item === 'string') {
+          return item;
+        }
+        if (item && typeof item === 'object' && 'msg' in item) {
+          return String((item as { msg: unknown }).msg);
+        }
+        return JSON.stringify(item);
+      })
+      .join('; ');
+  }
+  if (detail && typeof detail === 'object') {
+    return JSON.stringify(detail);
+  }
+  return err.message ?? 'アップロードに失敗しました';
+}
+
+function FileUploadDropzone({
+  onFiles,
+  isUploading,
+  uploadedLabel,
+  errorMessage,
+}: {
+  onFiles: (files: File[]) => void;
+  isUploading: boolean;
+  uploadedLabel: string | null;
+  errorMessage: string | null;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const takeFiles = (list: FileList | null) => {
+    if (!list?.length) {
+      return;
+    }
+    const csvFiles = Array.from(list).filter(
+      file => file.name.toLowerCase().endsWith('.csv') || file.type === 'text/csv'
+    );
+    if (csvFiles.length) {
+      onFiles(csvFiles);
+    }
+  };
+
+  return (
+    <div className="w-[320px] shrink-0">
+      <button
+        type="button"
+        aria-label="CSVファイルをアップロード"
+        disabled={isUploading}
+        onClick={() => inputRef.current?.click()}
+        onDragEnter={event => {
+          event.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragOver={event => {
+          event.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={event => {
+          event.preventDefault();
+          setIsDragging(false);
+        }}
+        onDrop={event => {
+          event.preventDefault();
+          setIsDragging(false);
+          takeFiles(event.dataTransfer.files);
+        }}
+        className={cn(
+          'flex w-full items-center gap-3 rounded-md border-2 border-dashed px-4 py-3 text-left transition-colors',
+          'hover:border-primary/60 hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60',
+          isDragging
+            ? 'border-primary bg-muted'
+            : 'border-muted-foreground/50 bg-muted/40'
+        )}
+      >
+        <Upload className="size-5 shrink-0 text-primary" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">
+            {isUploading ? 'アップロード中…' : 'CSVをドロップ / 選択'}
+          </div>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            {uploadedLabel ?? 'daily_stats + anomalies'}
+          </div>
+        </div>
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".csv,text/csv"
+        multiple
+        className="hidden"
+        onChange={event => {
+          takeFiles(event.target.files);
+          event.target.value = '';
+        }}
+      />
+      {errorMessage ? (
+        <div className="mt-1 text-[11px] text-destructive-foreground">{errorMessage}</div>
+      ) : null}
+    </div>
+  );
 }
 
 function XrControlChart({
@@ -459,18 +581,20 @@ function AlertDetail({ alertId }: { alertId: string }) {
 
 export function DashboardPage() {
   const { alertId } = useParams();
-  const { data, isLoading, isError } = useManufacturingDashboard();
+  const uploadMutation = useUploadManufacturingDashboard();
   const [selectedPattern, setSelectedPattern] = useState<number>(1);
+  const [dashboard, setDashboard] = useState<ManufacturingDashboard | null>(null);
+  const [uploadedLabel, setUploadedLabel] = useState<string | null>(null);
 
   const availablePatterns = useMemo(() => {
-    if (!data) {
-      return [1];
+    if (!dashboard) {
+      return [];
     }
-    if (data.availablePatterns?.length) {
-      return [...data.availablePatterns].sort((a, b) => a - b);
+    if (dashboard.availablePatterns?.length) {
+      return [...dashboard.availablePatterns].sort((a, b) => a - b);
     }
     const fromCharts = new Set<number>();
-    for (const metricCharts of Object.values(data.xrCharts ?? {})) {
+    for (const metricCharts of Object.values(dashboard.xrCharts ?? {})) {
       for (const patternKey of Object.keys(metricCharts ?? {})) {
         const pattern = Number(patternKey);
         if (Number.isFinite(pattern)) {
@@ -478,78 +602,83 @@ export function DashboardPage() {
         }
       }
     }
-    return fromCharts.size ? [...fromCharts].sort((a, b) => a - b) : [1];
-  }, [data]);
+    return fromCharts.size ? [...fromCharts].sort((a, b) => a - b) : [];
+  }, [dashboard]);
 
   useEffect(() => {
+    if (!availablePatterns.length) {
+      return;
+    }
     if (!availablePatterns.includes(selectedPattern)) {
       setSelectedPattern(availablePatterns[0] ?? 1);
     }
   }, [availablePatterns, selectedPattern]);
 
-  if (isLoading) {
-    return (
-      <main className="flex min-h-svh items-center justify-center bg-background p-6">
-        <div role="status" className="body-secondary">
-          Loading manufacturing dashboard...
-        </div>
-      </main>
-    );
-  }
+  const filteredAlertCount = dashboard
+    ? (dashboard.alerts ?? []).filter(alert => {
+        const pattern = alert.evidence?.pattern;
+        return pattern === undefined || pattern === selectedPattern;
+      }).length
+    : 0;
 
-  const dashboard =
-    data && typeof data === 'object' && 'summary' in data && 'range' in data ? data : null;
-
-  if (isError || !dashboard) {
-    return (
-      <main className="flex min-h-svh items-center justify-center bg-background p-6">
-        <Alert variant="destructive" className="max-w-md rounded-md">
-          <AlertTriangle />
-          <AlertTitle>Dashboard data unavailable</AlertTitle>
-          <AlertDescription>Manufacturing metrics could not be loaded.</AlertDescription>
-        </Alert>
-      </main>
-    );
-  }
-
-  const filteredAlertCount = (dashboard.alerts ?? []).filter(alert => {
-    const pattern = alert.evidence?.pattern;
-    return pattern === undefined || pattern === selectedPattern;
-  }).length;
-
-  const hasAnyChart = xrMetricOptions.some(metric =>
-    Boolean(
-      dashboard.xrCharts?.[metric]?.[String(selectedPattern)] ??
-        dashboard.rbarCharts?.[metric]
-    )
+  const hasAnyChart = Boolean(
+    dashboard &&
+      xrMetricOptions.some(metric =>
+        Boolean(
+          dashboard.xrCharts?.[metric]?.[String(selectedPattern)] ??
+            dashboard.rbarCharts?.[metric]
+        )
+      )
   );
+
+  const uploadError = formatUploadError(uploadMutation.error);
 
   return (
     <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
       <div className="mx-auto flex h-full w-full max-w-7xl min-h-0 flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
         <header className="flex shrink-0 flex-col gap-3 border-b pb-3 md:flex-row md:items-center md:justify-between">
-          <div>
+          <div className="min-w-0">
             <div className="mb-2 flex flex-wrap items-center gap-2">
-              <Badge className="rounded-sm">
-                表示 {formatDate(dashboard.range.startDate)} - {formatDate(dashboard.range.endDate)}
-              </Badge>
-              <Badge type="outline" className="rounded-sm">
-                アラート判定 直近7日
-              </Badge>
-              {dashboard.summary.criticalAlertCount > 0 ? (
-                <Badge variant="destructive" className="rounded-sm">
-                  critical {dashboard.summary.criticalAlertCount}
-                </Badge>
+              {dashboard ? (
+                <>
+                  <Badge className="rounded-sm">
+                    表示 {formatDate(dashboard.range.startDate)} -{' '}
+                    {formatDate(dashboard.range.endDate)}
+                  </Badge>
+                  <Badge type="outline" className="rounded-sm">
+                    アラート判定 直近7日
+                  </Badge>
+                  {dashboard.summary.criticalAlertCount > 0 ? (
+                    <Badge variant="destructive" className="rounded-sm">
+                      critical {dashboard.summary.criticalAlertCount}
+                    </Badge>
+                  ) : null}
+                </>
               ) : null}
             </div>
             <h1 className="heading-02">モールド装置 X-R管理図</h1>
           </div>
-          <Button asChild variant="secondary" size="sm" className="w-fit">
-            <Link to={PATHS.CHAT_EMPTY}>
-              <ArrowLeft className="size-4" />
-              Chat
-            </Link>
-          </Button>
+          <div className="flex shrink-0 flex-nowrap items-center gap-3">
+            <FileUploadDropzone
+              isUploading={uploadMutation.isPending}
+              uploadedLabel={uploadedLabel}
+              errorMessage={uploadError}
+              onFiles={files => {
+                setUploadedLabel(files.map(file => file.name).join(', '));
+                uploadMutation.mutate(files, {
+                  onSuccess: response => {
+                    setDashboard(response.data);
+                  },
+                });
+              }}
+            />
+            <Button asChild variant="secondary" size="sm" className="w-fit shrink-0">
+              <Link to={PATHS.CHAT_EMPTY}>
+                <ArrowLeft className="size-4" />
+                Chat
+              </Link>
+            </Button>
+          </div>
         </header>
 
         <section className="grid shrink-0 gap-3 md:grid-cols-2">
@@ -561,7 +690,7 @@ export function DashboardPage() {
               <div className="min-w-0">
                 <div className="caption-01">業務アラート（全体）</div>
                 <div data-testid="business-alert-count" className="heading-03 mt-1">
-                  {dashboard.summary.businessRuleAlertCount}件
+                  {dashboard ? `${dashboard.summary.businessRuleAlertCount}件` : '—'}
                 </div>
                 <div className="caption-01 mt-1">新JIS 違反ルール検知</div>
               </div>
@@ -574,8 +703,10 @@ export function DashboardPage() {
               </div>
               <div className="min-w-0">
                 <div className="caption-01">選択中のアラート</div>
-                <div className="heading-03 mt-1">{filteredAlertCount}件</div>
-                <div className="caption-01 mt-1">吐出パターン{selectedPattern}</div>
+                <div className="heading-03 mt-1">{dashboard ? `${filteredAlertCount}件` : '—'}</div>
+                <div className="caption-01 mt-1">
+                  {dashboard ? `吐出パターン${selectedPattern}` : '吐出パターン —'}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -586,22 +717,40 @@ export function DashboardPage() {
             吐出パターン番号
             <select
               aria-label="吐出パターン番号"
-              className="h-7 rounded-sm border bg-background px-2 text-sm"
+              className="h-7 rounded-sm border bg-background px-2 text-sm disabled:opacity-50"
               value={selectedPattern}
+              disabled={!availablePatterns.length}
               onChange={event => setSelectedPattern(Number(event.target.value))}
             >
-              {availablePatterns.map(pattern => (
-                <option key={pattern} value={pattern}>
-                  {pattern}
-                </option>
-              ))}
+              {availablePatterns.length ? (
+                availablePatterns.map(pattern => (
+                  <option key={pattern} value={pattern}>
+                    {pattern}
+                  </option>
+                ))
+              ) : (
+                <option value="">—</option>
+              )}
             </select>
           </label>
         </div>
 
-        <section className="grid min-h-0 flex-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.8fr)]">
-          <div className="flex flex-col gap-4 pb-4">
-            {!hasAnyChart ? (
+        <section className="grid min-h-0 flex-1 items-stretch gap-4 overflow-y-auto lg:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.8fr)]">
+          <div className={cn('flex min-h-0 flex-col gap-4 pb-4', !dashboard && 'h-full')}>
+            {!dashboard ? (
+              <Card className="flex h-[115px] flex-col rounded-md">
+                <CardContent className="flex flex-1 items-start p-4">
+                  <Alert className="w-full rounded-md border-0 bg-transparent p-0">
+                    <Upload />
+                    <AlertTitle>CSVをアップロードしてください</AlertTitle>
+                    <AlertDescription>
+                      phase2 の daily_stats / anomalies CSV
+                      をアップロードすると、管理図とアラートが表示されます。
+                    </AlertDescription>
+                  </Alert>
+                </CardContent>
+              </Card>
+            ) : !hasAnyChart ? (
               <Alert className="rounded-md">
                 <AlertCircle />
                 <AlertTitle>X管理図データなし</AlertTitle>
@@ -628,15 +777,30 @@ export function DashboardPage() {
           {alertId ? (
             <AlertDetail alertId={alertId} />
           ) : (
-            <Card className="rounded-md self-start">
-              <CardHeader className="pb-2">
+            <Card
+              className={cn(
+                'flex flex-col rounded-md',
+                !dashboard ? 'h-[115px]' : 'self-start'
+              )}
+            >
+              <CardHeader className="shrink-0 py-3 pb-1">
                 <CardTitle>業務アラート一覧</CardTitle>
               </CardHeader>
-              <CardContent>
-                <AlertList
-                  alerts={dashboard.alerts ?? []}
-                  selectedPattern={selectedPattern}
-                />
+              <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden pt-0">
+                {!dashboard ? (
+                  <Alert className="rounded-md border-0 bg-transparent p-0">
+                    <AlertCircle />
+                    <AlertTitle>アラートなし</AlertTitle>
+                    <AlertDescription>
+                      データをアップロードするとアラート一覧が表示されます。
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <AlertList
+                    alerts={dashboard.alerts ?? []}
+                    selectedPattern={selectedPattern}
+                  />
+                )}
               </CardContent>
             </Card>
           )}

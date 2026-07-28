@@ -13,4 +13,15 @@ const apiClient = axios.create({
   withCredentials: true,
 });
 
+apiClient.interceptors.request.use(config => {
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    // Let the browser set multipart boundary; default JSON content-type breaks uploads.
+    if (config.headers) {
+      delete config.headers['Content-Type'];
+      delete config.headers['Content-type'];
+    }
+  }
+  return config;
+});
+
 export default apiClient;

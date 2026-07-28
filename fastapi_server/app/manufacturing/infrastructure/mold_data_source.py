@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import csv
+import io
 import json
 import os
 from collections import defaultdict
@@ -107,6 +108,16 @@ def parse_violation_rules(raw: str) -> list[int]:
     return [int(part) for part in text.split(",") if part.strip().isdigit()]
 
 
+def parse_csv_rows(content: str | bytes) -> list[dict[str, str]]:
+    """Parse CSV text/bytes into row dicts (utf-8-sig aware)."""
+    text = (
+        content.decode("utf-8-sig")
+        if isinstance(content, (bytes, bytearray))
+        else content.lstrip("\ufeff")
+    )
+    return [dict(row) for row in csv.DictReader(io.StringIO(text))]
+
+
 def load_daily_stats(data_dir: Path | None = None) -> list[dict[str, str]]:
     path = (data_dir or get_mold_data_dir()) / "phase2_daily_stats.csv"
     with path.open(encoding="utf-8-sig", newline="") as handle:
@@ -125,6 +136,20 @@ def load_anomalies(data_dir: Path | None = None) -> list[dict[str, str]]:
         return []
     with path.open(encoding="utf-8-sig", newline="") as handle:
         return [dict(row) for row in csv.DictReader(handle)]
+
+
+def classify_phase2_csv_rows(
+    rows: list[dict[str, str]],
+) -> str | None:
+    """Return 'daily_stats', 'anomalies', or None from CSV headers."""
+    if not rows:
+        return None
+    headers = {key.strip() for key in rows[0]}
+    if "平均" in headers and "ターゲットカラム" in headers:
+        return "daily_stats"
+    if "平均値" in headers and ("違反ルール" in headers or "違反ルール_str" in headers):
+        return "anomalies"
+    return None
 
 
 def resolve_display_windows(
@@ -167,6 +192,9 @@ def build_anomaly_lookup(
 
 def build_xr_charts_and_alerts(
     data_dir: Path | None = None,
+    *,
+    daily_rows: list[dict[str, str]] | None = None,
+    anomaly_rows: list[dict[str, str]] | None = None,
 ) -> tuple[
     dict[MetricName, dict[str, RbarChart]],
     list[ManufacturingAlert],
@@ -175,9 +203,12 @@ def build_xr_charts_and_alerts(
     date,
 ]:
     data_dir = data_dir or get_mold_data_dir()
-    daily_rows = load_daily_stats(data_dir)
+    if daily_rows is None:
+        daily_rows = load_daily_stats(data_dir)
+    if anomaly_rows is None:
+        anomaly_rows = load_anomalies(data_dir)
     control_limits_payload = load_control_limits(data_dir)
-    anomaly_lookup = build_anomaly_lookup(load_anomalies(data_dir))
+    anomaly_lookup = build_anomaly_lookup(anomaly_rows)
 
     control_limits = control_limits_payload.get("control_limits", {})
 
@@ -372,14 +403,22 @@ def default_chart_for_metric(
 class MoldDashboardProvider:
     """Builds a full ManufacturingDashboard from Phase 0/2 pipeline outputs."""
 
-    def build(self) -> ManufacturingDashboard:
+    def build(
+        self,
+        *,
+        daily_rows: list[dict[str, str]] | None = None,
+        anomaly_rows: list[dict[str, str]] | None = None,
+    ) -> ManufacturingDashboard:
         from app.manufacturing.domain.models import (
             ManufacturingDashboard,
             ManufacturingRange,
             ManufacturingSummary,
         )
 
-        xr_charts, alerts, patterns, plot_start, latest = build_xr_charts_and_alerts()
+        xr_charts, alerts, patterns, plot_start, latest = build_xr_charts_and_alerts(
+            daily_rows=daily_rows,
+            anomaly_rows=anomaly_rows,
+        )
         series = build_stub_series(plot_start, latest, alerts)
 
         rbar_charts = {}

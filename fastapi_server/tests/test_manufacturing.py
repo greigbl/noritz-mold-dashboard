@@ -572,3 +572,53 @@ async def test_alert_detail_and_refresh_reuse_stored_alert() -> None:
     assert detail.insight_status == "ready"
     assert refreshed.id == alert_id
     assert refreshed.insight is not None
+
+
+def test_upload_manufacturing_dashboard_from_monthly_chunks(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.manufacturing.infrastructure.mold_data_source import MoldDashboardProvider
+
+    monkeypatch.setattr(
+        manufacturing_api,
+        "_manufacturing_service",
+        ManufacturingDashboardService(
+            prediction_client=LocalManufacturingPredictionClient(),
+            insight_service=InsightService(),
+            mold_dashboard_provider=MoldDashboardProvider(),
+        ),
+    )
+
+    monthly_dir = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "manufacturing"
+        / "data"
+        / "mold"
+        / "monthly"
+    )
+    daily_path = monthly_dir / "phase2_daily_stats_2026-04.csv"
+    anomalies_path = monthly_dir / "phase2_anomalies_2026-04.csv"
+
+    response = client.post(
+        "/api/v1/manufacturing/dashboard/upload",
+        files=[
+            (
+                "files",
+                (daily_path.name, daily_path.read_bytes(), "text/csv"),
+            ),
+            (
+                "files",
+                (anomalies_path.name, anomalies_path.read_bytes(), "text/csv"),
+            ),
+        ],
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["range"]["endDate"].startswith("2026-04")
+    assert "a_agent_flow_pressure" in data["xrCharts"]
+    assert data["summary"]["businessRuleAlertCount"] > 0
+    assert len(data["alerts"]) > 0
+    assert data["availablePatterns"]

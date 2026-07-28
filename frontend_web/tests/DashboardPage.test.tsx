@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
@@ -179,15 +179,39 @@ function renderDashboard(initialEntries = ['/dashboard']) {
   );
 }
 
-describe('DashboardPage', () => {
-  it('renders mold X-R dashboard with business alerts', async () => {
-    server.use(
-      http.get('*/api/v1/manufacturing/dashboard', () => HttpResponse.json(dashboardResponse))
-    );
+async function uploadDashboardCsv() {
+  server.use(
+    http.post('*/api/v1/manufacturing/dashboard/upload', () =>
+      HttpResponse.json(dashboardResponse)
+    )
+  );
 
+  const input = screen.getByLabelText('CSVファイルをアップロード').parentElement?.querySelector(
+    'input[type="file"]'
+  ) as HTMLInputElement;
+  const file = new File(['吐出パターン番号,注入開始日,平均\n'], 'phase2_daily_stats_2026-04.csv', {
+    type: 'text/csv',
+  });
+  fireEvent.change(input, { target: { files: [file] } });
+  await waitFor(() => {
+    expect(screen.getByText('A剤流圧 X管理図')).toBeInTheDocument();
+  });
+}
+
+describe('DashboardPage', () => {
+  it('starts empty until CSV is uploaded', async () => {
     renderDashboard();
 
     expect(await screen.findByText('モールド装置 X-R管理図')).toBeInTheDocument();
+    expect(screen.getByText('CSVをアップロードしてください')).toBeInTheDocument();
+    expect(screen.getByTestId('business-alert-count')).toHaveTextContent('—');
+    expect(screen.getByLabelText('CSVファイルをアップロード')).toBeInTheDocument();
+  });
+
+  it('renders mold X-R dashboard after upload', async () => {
+    renderDashboard();
+    await uploadDashboardCsv();
+
     expect(screen.getByText('業務アラート（全体）')).toBeInTheDocument();
     expect(screen.getByText('1件', { selector: '[data-testid="business-alert-count"]' }));
     expect(screen.getByText('A剤流圧 X管理図')).toBeInTheDocument();
@@ -196,14 +220,11 @@ describe('DashboardPage', () => {
   });
 
   it('switches pattern and updates all feature charts', async () => {
-    server.use(
-      http.get('*/api/v1/manufacturing/dashboard', () => HttpResponse.json(dashboardResponse))
-    );
-
     renderDashboard();
+    await uploadDashboardCsv();
 
     expect(
-      await screen.findByRole('img', { name: 'A剤流圧 吐出パターン1 X管理図' })
+      screen.getByRole('img', { name: 'A剤流圧 吐出パターン1 X管理図' })
     ).toBeInTheDocument();
     expect(
       screen.getByRole('img', { name: 'B剤流圧 吐出パターン1 X管理図' })
@@ -214,43 +235,14 @@ describe('DashboardPage', () => {
     expect(
       screen.getByRole('img', { name: 'A剤流圧 吐出パターン6 X管理図' })
     ).toBeInTheDocument();
-    // B剤 has no pattern 6 — empty state for that feature
     expect(screen.getAllByText('X管理図データなし').length).toBeGreaterThan(0);
   });
 
-  it('renders empty state when chart data is unavailable', async () => {
-    server.use(
-      http.get('*/api/v1/manufacturing/dashboard', () =>
-        HttpResponse.json({
-          ...dashboardResponse,
-          summary: {
-            ...dashboardResponse.summary,
-            alertCount: 0,
-            businessRuleAlertCount: 0,
-            criticalAlertCount: 0,
-          },
-          rbarChart: null,
-          rbarCharts: {},
-          xrCharts: {},
-          alerts: [],
-        })
-      )
-    );
-
-    renderDashboard();
-
-    expect(await screen.findByText('モールド装置 X-R管理図')).toBeInTheDocument();
-    expect(screen.getByText('X管理図データなし')).toBeInTheDocument();
-  });
-
   it('navigates to chat with the alert id when an alert is clicked', async () => {
-    server.use(
-      http.get('*/api/v1/manufacturing/dashboard', () => HttpResponse.json(dashboardResponse))
-    );
-
     renderDashboard();
+    await uploadDashboardCsv();
 
-    fireEvent.click(await screen.findByRole('link', { name: /JIS管理図違反/ }));
+    fireEvent.click(screen.getByRole('link', { name: /JIS管理図違反/ }));
 
     expect(await screen.findByText('Chat target')).toBeInTheDocument();
   });

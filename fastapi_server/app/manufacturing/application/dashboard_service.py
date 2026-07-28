@@ -160,6 +160,28 @@ class ManufacturingDashboardService:
         self._alerts_by_id = {alert.id: alert for alert in dashboard.alerts}
         return dashboard
 
+    async def build_mold_dashboard_from_upload(
+        self,
+        *,
+        daily_rows: list[dict[str, str]],
+        anomaly_rows: list[dict[str, str]] | None = None,
+    ) -> ManufacturingDashboard:
+        if self.mold_dashboard_provider is None:
+            raise ValueError("Mold dashboard provider is not configured.")
+        if not daily_rows:
+            raise ValueError("daily_stats CSV must contain at least one data row.")
+
+        dashboard = self.mold_dashboard_provider.build(
+            daily_rows=daily_rows,
+            anomaly_rows=anomaly_rows if anomaly_rows is not None else [],
+        )
+        if dashboard.alerts:
+            await self.insight_service.prepare_insights(dashboard)
+
+        self._last_dashboard = dashboard
+        self._alerts_by_id = {alert.id: alert for alert in dashboard.alerts}
+        return dashboard
+
     async def resolve_predictions(
         self,
         sorted_series: list[ManufacturingDailyRecord],

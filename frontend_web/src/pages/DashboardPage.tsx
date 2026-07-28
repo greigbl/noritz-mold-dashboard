@@ -45,12 +45,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { PATHS } from '@/constants/path';
 import { cn } from '@/lib/utils';
 
@@ -157,99 +151,9 @@ function formatViolationRules(alert: ManufacturingAlert) {
 
 function resolveRuleDescription(
   rule: number,
-  descriptions: JisRuleDescriptions | undefined,
-  details?: ViolationRuleDetail[]
-) {
-  const fromDetails = details?.find(detail => detail.rule === rule)?.description;
-  if (fromDetails) {
-    return fromDetails;
-  }
-  return descriptions?.[String(rule)] ?? '';
-}
-
-function getAlertRuleDetails(
-  alert: ManufacturingAlert,
   descriptions: JisRuleDescriptions | undefined
-): ViolationRuleDetail[] {
-  const rawDetails = alert.evidence?.violationRuleDetails;
-  if (Array.isArray(rawDetails)) {
-    return rawDetails
-      .map(item => {
-        if (!item || typeof item !== 'object') {
-          return null;
-        }
-        const record = item as Record<string, unknown>;
-        const rule = Number(record.rule);
-        if (!Number.isFinite(rule)) {
-          return null;
-        }
-        return {
-          rule,
-          description:
-            typeof record.description === 'string'
-              ? record.description
-              : resolveRuleDescription(rule, descriptions),
-        };
-      })
-      .filter((item): item is ViolationRuleDetail => item != null);
-  }
-
-  const rules = alert.evidence?.violationRules;
-  if (Array.isArray(rules)) {
-    return rules
-      .map(rule => Number(rule))
-      .filter(rule => Number.isFinite(rule))
-      .map(rule => ({
-        rule,
-        description: resolveRuleDescription(rule, descriptions),
-      }));
-  }
-
-  return [];
-}
-
-function ViolationRuleChips({
-  rules,
-  descriptions,
-}: {
-  rules: number[];
-  descriptions?: JisRuleDescriptions;
-}) {
-  if (!rules.length) {
-    return null;
-  }
-
-  return (
-    <TooltipProvider delayDuration={150}>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {rules.map(rule => {
-          const description = resolveRuleDescription(rule, descriptions);
-          return (
-            <Tooltip key={rule}>
-              <TooltipTrigger asChild>
-                <span
-                  className={cn(
-                    'inline-flex cursor-help items-center rounded-sm border px-1.5 py-0.5 caption-01',
-                    rule === 1
-                      ? 'border-destructive-foreground/40 bg-destructive/10 text-destructive-foreground'
-                      : 'border-warning/40 bg-warning/10 text-foreground'
-                  )}
-                >
-                  ルール{rule}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-xs">
-                <div className="font-medium">新JIS ルール{rule}</div>
-                <div className="mt-1 body-secondary">
-                  {description || '説明は未定義です。'}
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          );
-        })}
-      </div>
-    </TooltipProvider>
-  );
+) {
+  return descriptions?.[String(rule)] ?? '';
 }
 
 function ViolationRuleDossier({ details }: { details: ViolationRuleDetail[] }) {
@@ -770,7 +674,6 @@ function AlertDetail({ alertId }: { alertId: string }) {
               : ''}
           </AlertDescription>
         </Alert>
-        <ViolationRuleDossier details={getAlertRuleDetails(alert, undefined)} />
         <div className="rounded-md border p-4">
           <div className="mb-2 flex items-center gap-2 heading-06">
             <RefreshCw className="size-4" />
@@ -1002,25 +905,27 @@ export function DashboardPage() {
                 </div>
               </CardContent>
             </Card>
-            <label className="flex shrink-0 items-center gap-2 caption-01 text-muted-foreground">
-              吐出パターン番号
-              <select
-                aria-label="吐出パターン番号"
-                className="h-7 rounded-sm border bg-background px-2 text-sm"
-                value={selectedPattern}
-                onChange={event => setSelectedPattern(Number(event.target.value))}
-              >
-                {availablePatterns.map(pattern => (
-                  <option key={pattern} value={pattern}>
-                    {pattern}
-                  </option>
-                ))}
-              </select>
-            </label>
             <Card className="shrink-0 rounded-md py-3">
-              <CardContent className="px-4 py-1">
-                <div className="caption-01 text-muted-foreground">選択中のアラート</div>
-                <div className="heading-03 mt-2">{filteredAlertCount}件</div>
+              <CardContent className="flex items-end justify-between gap-3 px-4 py-1">
+                <div className="min-w-0">
+                  <div className="caption-01 text-muted-foreground">選択中のアラート</div>
+                  <div className="heading-03 mt-2">{filteredAlertCount}件</div>
+                </div>
+                <label className="flex shrink-0 flex-col gap-1 caption-01 text-muted-foreground">
+                  吐出パターン番号
+                  <select
+                    aria-label="吐出パターン番号"
+                    className="h-7 rounded-sm border bg-background px-2 text-sm text-foreground"
+                    value={selectedPattern}
+                    onChange={event => setSelectedPattern(Number(event.target.value))}
+                  >
+                    {availablePatterns.map(pattern => (
+                      <option key={pattern} value={pattern}>
+                        {pattern}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </CardContent>
             </Card>
 

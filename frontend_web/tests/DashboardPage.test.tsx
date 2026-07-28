@@ -209,7 +209,6 @@ describe('DashboardPage', () => {
     expect(screen.getByText('A剤流圧 X管理図')).toBeInTheDocument();
     expect(screen.getByText('B剤流圧 X管理図')).toBeInTheDocument();
     expect(screen.getByLabelText('吐出パターン番号')).toBeInTheDocument();
-    expect(screen.getByText('選択中パターンで発火中のJISルール')).toBeInTheDocument();
     expect(screen.getAllByText(/領域A超過点が1つ/).length).toBeGreaterThan(0);
     expect(screen.getAllByText('ルール1').length).toBeGreaterThan(0);
   });

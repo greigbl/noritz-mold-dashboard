@@ -279,57 +279,6 @@ function ViolationRuleDossier({ details }: { details: ViolationRuleDetail[] }) {
   );
 }
 
-function ActiveRulesLegend({
-  alerts,
-  selectedPattern,
-  descriptions,
-}: {
-  alerts: ManufacturingAlert[];
-  selectedPattern: number;
-  descriptions?: JisRuleDescriptions;
-}) {
-  const activeRules = useMemo(() => {
-    const rules = new Set<number>();
-    for (const alert of alerts) {
-      const pattern = alert.evidence?.pattern;
-      if (pattern !== undefined && pattern !== selectedPattern) {
-        continue;
-      }
-      for (const detail of getAlertRuleDetails(alert, descriptions)) {
-        rules.add(detail.rule);
-      }
-    }
-    return [...rules].sort((a, b) => a - b);
-  }, [alerts, descriptions, selectedPattern]);
-
-  if (!activeRules.length) {
-    return null;
-  }
-
-  return (
-    <div className="rounded-md border bg-muted/30 p-3">
-      <div className="mb-2 caption-01 font-medium text-muted-foreground">
-        選択中パターンで発火中のJISルール
-      </div>
-      <div className="space-y-2">
-        {activeRules.map(rule => (
-          <div key={rule} className="flex gap-2 caption-01">
-            <Badge
-              variant={rule === 1 ? 'destructive' : 'warning'}
-              className="h-5 shrink-0 rounded-sm px-1.5"
-            >
-              {rule}
-            </Badge>
-            <span className="text-muted-foreground">
-              {resolveRuleDescription(rule, descriptions) || '説明なし'}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function DailyCountBarChart({
   chart,
   anomalyThreshold,
@@ -703,11 +652,9 @@ function XrControlChart({
 function AlertList({
   alerts,
   selectedPattern,
-  jisRuleDescriptions,
 }: {
   alerts: ManufacturingAlert[];
   selectedPattern: number;
-  jisRuleDescriptions?: JisRuleDescriptions;
 }) {
   const filtered = alerts.filter(alert => {
     const pattern = alert.evidence?.pattern;
@@ -728,46 +675,38 @@ function AlertList({
 
   return (
     <div className="space-y-2">
-      {filtered.map(alert => {
-        const details = getAlertRuleDetails(alert, jisRuleDescriptions);
-        return (
-          <Link
-            key={alert.id}
-            to={`${PATHS.CHAT_EMPTY}?alertId=${encodeURIComponent(alert.id)}`}
-            className={cn(
-              'block rounded-md border p-3 no-underline transition-colors hover:bg-muted',
-              alert.severity === 'critical' && 'border-destructive-foreground',
-              alert.severity === 'warning' && 'border-warning'
-            )}
-          >
-            <div className="mb-2 flex items-start justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
-                {alert.alertType === 'prediction_ai' ? (
-                  <BrainCircuit className="size-4 shrink-0 text-primary" />
-                ) : (
-                  <ShieldAlert className="size-4 shrink-0 text-warning" />
-                )}
-                <span className="body truncate">{alert.title}</span>
-              </div>
-              <Badge
-                variant={alert.severity === 'critical' ? 'destructive' : 'warning'}
-                className="rounded-sm"
-              >
-                {alert.severity}
-              </Badge>
+      {filtered.map(alert => (
+        <Link
+          key={alert.id}
+          to={`${PATHS.CHAT_EMPTY}?alertId=${encodeURIComponent(alert.id)}`}
+          className={cn(
+            'block rounded-md border p-3 no-underline transition-colors hover:bg-muted',
+            alert.severity === 'critical' && 'border-destructive-foreground',
+            alert.severity === 'warning' && 'border-warning'
+          )}
+        >
+          <div className="mb-2 flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              {alert.alertType === 'prediction_ai' ? (
+                <BrainCircuit className="size-4 shrink-0 text-primary" />
+              ) : (
+                <ShieldAlert className="size-4 shrink-0 text-warning" />
+              )}
+              <span className="body truncate">{alert.title}</span>
             </div>
-            <div className="caption-01 text-muted-foreground">
-              {metricLabels[alert.metric]} / {formatDate(alert.date)} / 実績{' '}
-              {formatAlertValue(alert)}
-            </div>
-            <ViolationRuleChips
-              rules={details.map(detail => detail.rule)}
-              descriptions={jisRuleDescriptions}
-            />
-            <ViolationRuleDossier details={details} />
-          </Link>
-        );
-      })}
+            <Badge
+              variant={alert.severity === 'critical' ? 'destructive' : 'warning'}
+              className="rounded-sm"
+            >
+              {alert.severity}
+            </Badge>
+          </div>
+          <div className="caption-01 text-muted-foreground">
+            {metricLabels[alert.metric]} / {formatDate(alert.date)} / 実績{' '}
+            {formatAlertValue(alert)}
+          </div>
+        </Link>
+      ))}
     </div>
   );
 }
@@ -1085,14 +1024,6 @@ export function DashboardPage() {
               </CardContent>
             </Card>
 
-            <div className="shrink-0">
-              <ActiveRulesLegend
-                alerts={dashboard.alerts ?? []}
-                selectedPattern={selectedPattern}
-                descriptions={dashboard.jisRuleDescriptions}
-              />
-            </div>
-
             {alertId ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <AlertDetail alertId={alertId} />
@@ -1106,7 +1037,6 @@ export function DashboardPage() {
                   <AlertList
                     alerts={dashboard.alerts ?? []}
                     selectedPattern={selectedPattern}
-                    jisRuleDescriptions={dashboard.jisRuleDescriptions}
                   />
                 </CardContent>
               </Card>

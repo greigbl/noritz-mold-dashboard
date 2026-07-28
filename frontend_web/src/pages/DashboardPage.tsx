@@ -11,7 +11,6 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
-  CartesianGrid,
   Dot,
   Line,
   LineChart as RechartsLineChart,
@@ -245,7 +244,6 @@ function XrControlChart({
         >
           <ResponsiveContainer width="100%" height="100%">
             <RechartsLineChart data={chartData} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-              <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="label"
                 tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
@@ -275,21 +273,6 @@ function XrControlChart({
                     <div className="rounded-md border bg-background px-3 py-2 shadow-sm caption-01">
                       <div className="font-medium">{point.date}</div>
                       <div className="mt-1">値 {point.value.toFixed(4)}</div>
-                      <div>CL {chart.centerLine.toFixed(4)}</div>
-                      <div>UCL {chart.ucl.toFixed(4)}</div>
-                      <div>LCL {chart.lcl.toFixed(4)}</div>
-                      {chart.upper2Sigma != null ? (
-                        <div>上側2σ {chart.upper2Sigma.toFixed(4)}</div>
-                      ) : null}
-                      {chart.upper1Sigma != null ? (
-                        <div>上側1σ {chart.upper1Sigma.toFixed(4)}</div>
-                      ) : null}
-                      {chart.lower1Sigma != null ? (
-                        <div>下側1σ {chart.lower1Sigma.toFixed(4)}</div>
-                      ) : null}
-                      {chart.lower2Sigma != null ? (
-                        <div>下側2σ {chart.lower2Sigma.toFixed(4)}</div>
-                      ) : null}
                       {point.violationRules?.length ? (
                         <div className="mt-1 text-warning">
                           違反ルール {point.violationRules.join(',')}
@@ -405,18 +388,6 @@ function XrControlChart({
               : ''}
           </div>
         ) : null}
-        <div className="mt-3 grid gap-2 text-muted-foreground caption-01 sm:grid-cols-4">
-          <div>CL {chart.centerLine.toFixed(4)}</div>
-          <div>UCL {chart.ucl.toFixed(4)}</div>
-          <div>LCL {chart.lcl.toFixed(4)}</div>
-          <div>
-            表示域 {domainMin.toFixed(4)} - {domainMax.toFixed(4)}
-          </div>
-          {chart.upper2Sigma != null ? <div>上側2σ {chart.upper2Sigma.toFixed(4)}</div> : null}
-          {chart.upper1Sigma != null ? <div>上側1σ {chart.upper1Sigma.toFixed(4)}</div> : null}
-          {chart.lower1Sigma != null ? <div>下側1σ {chart.lower1Sigma.toFixed(4)}</div> : null}
-          {chart.lower2Sigma != null ? <div>下側2σ {chart.lower2Sigma.toFixed(4)}</div> : null}
-        </div>
       </CardContent>
     </Card>
   );

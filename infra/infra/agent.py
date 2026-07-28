@@ -49,14 +49,18 @@ DEFAULT_DRUM_WORKER_CONNECTIONS: Final[str] = "1"
 # Default gunicorn timeout in current DRUM is 2 mins
 DEFAULT_DRUM_CLIENT_REQUEST_TIMEOUT: Final[str] = "300"
 
-# DRUM runtime parameters that are safe to include defaultValue in metadata
-DRUM_PARAMS_WITH_DEFAULTS: Final[set[str]] = {
+# Runtime parameters that are safe to include defaultValue in metadata
+PARAMS_WITH_DEFAULTS: Final[set[str]] = {
     "CUSTOM_MODEL_WORKERS",
     "DRUM_SERVER_TYPE",
     "DRUM_GUNICORN_WORKER_CLASS",
     "DRUM_WORKER_CONNECTIONS",
     "DRUM_CLIENT_REQUEST_TIMEOUT",
+    # Boolean defaults to False in the runtime if omitted; must ship True for NAT/DRAgent.
+    "ENABLE_DRAGENT_SERVER",
 }
+# Back-compat alias used by tests / older references
+DRUM_PARAMS_WITH_DEFAULTS: Final[set[str]] = PARAMS_WITH_DEFAULTS
 
 # Custom Model resource bundle configuration
 DEFAULT_AGENT_RESOURCE_BUNDLE_ID: Final[str] = (
@@ -166,14 +170,22 @@ def _generate_metadata_yaml(
             "fieldName": param.key,
             "type": param.type,
         }
-        # Only include defaultValue for safe parameters (allowlisted DRUM params)
+        # Only include defaultValue for allowlisted parameters (safe defaults)
         if (
             hasattr(param, "value")
-            and param.value
+            and param.value is not None
+            and param.value != ""
             and not isinstance(param.value, pulumi.Output)
-            and param.key in DRUM_PARAMS_WITH_DEFAULTS
+            and param.key in PARAMS_WITH_DEFAULTS
         ):
-            param_def["defaultValue"] = param.value
+            default_value = param.value
+            # Boolean runtime definitions require YAML/JSON booleans, not "true"/"false" strings.
+            if param.type == "boolean":
+                if isinstance(default_value, str):
+                    default_value = default_value.strip().lower() in {"1", "true", "yes"}
+                else:
+                    default_value = bool(default_value)
+            param_def["defaultValue"] = default_value
         runtime_param_defs.append(param_def)
 
     metadata = {

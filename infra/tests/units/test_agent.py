@@ -1217,6 +1217,8 @@ class TestGenerateMetadataYaml:
             RuntimeParam(
                 key="EXTERNAL_MCP_HEADERS", type="string", value='{"auth": "token"}'
             ),
+            # DRAgent flag - should HAVE defaultValue (must not default to False at runtime)
+            RuntimeParam(key="ENABLE_DRAGENT_SERVER", type="boolean", value="true"),
         ]
 
         # Call the function with tmp_path as the custom model folder
@@ -1237,7 +1239,7 @@ class TestGenerateMetadataYaml:
         # Verify parameters maintain order and correct types
         params = metadata["runtimeParameterDefinitions"]
 
-        assert len(params) == 5
+        assert len(params) == 6
 
         # String parameter - should NOT have defaultValue (not in allowlist)
         assert params[0]["fieldName"] == "LLM_DEPLOYMENT_ID"
@@ -1274,6 +1276,11 @@ class TestGenerateMetadataYaml:
         assert "defaultValue" not in params[4], (
             "String parameters with sensitive data should not have defaultValue"
         )
+
+        # ENABLE_DRAGENT_SERVER - should HAVE boolean defaultValue true (not the string "true")
+        assert params[5]["fieldName"] == "ENABLE_DRAGENT_SERVER"
+        assert params[5]["type"] == "boolean"
+        assert params[5].get("defaultValue") is True
 
     def test_with_empty_parameters(self, tmp_path, monkeypatch):
         """Test _generate_metadata_yaml generates correct YAML with empty parameter list."""

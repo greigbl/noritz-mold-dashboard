@@ -95,6 +95,8 @@ export type ManufacturingAlert = {
   evidence: Record<string, unknown>;
   insightStatus: InsightStatus;
   insight: string | null;
+  /** Max ANOMALY_SCORE for the alert's production day (prediction CSV). */
+  anomalyScore?: number | null;
 };
 
 export type RbarChartPoint = {

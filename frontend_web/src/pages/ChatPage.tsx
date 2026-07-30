@@ -194,6 +194,9 @@ export function buildAlertChatPrompt(alert: ManufacturingAlert) {
     alert.centerLine !== null ? `中心線: ${alert.centerLine}` : null,
     `ルール: ${alert.ruleId} v${alert.ruleVersion}`,
     alert.insight ? `既存考察: ${alert.insight}` : null,
+    alert.anomalyScore != null
+      ? `異常予測モデルの異常値は${alert.anomalyScore}です`
+      : null,
   ].filter(Boolean);
 
   return lines.join('\n');

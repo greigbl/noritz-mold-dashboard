@@ -636,6 +636,11 @@ def test_upload_manufacturing_dashboard_from_monthly_chunks(
         "violationRuleDetails" in alert.get("evidence", {})
         for alert in data["alerts"]
     )
+    assert any(
+        alert.get("anomalyScore") is not None
+        and alert.get("evidence", {}).get("pattern") is not None
+        for alert in data["alerts"]
+    )
 
 
 def test_parse_production_day_and_max_anomaly_scores(tmp_path: Path) -> None:
@@ -648,10 +653,11 @@ def test_parse_production_day_and_max_anomaly_scores(tmp_path: Path) -> None:
     csv_path.write_text(
         "\n".join(
             [
-                "ANOMALY_SCORE,生産日",
-                "0.01,46127.0",
-                "0.20,46127.0",
-                "0.05,46128.0",
+                "ANOMALY_SCORE,生産日,吐出パターン番号",
+                "0.01,46127.0,1",
+                "0.20,46127.0,1",
+                "0.15,46127.0,6",
+                "0.05,46128.0,1",
             ]
         )
         + "\n",
@@ -673,6 +679,19 @@ def test_parse_production_day_and_max_anomaly_scores(tmp_path: Path) -> None:
     scores = mold.load_daily_max_anomaly_scores(tmp_path)
     assert scores[date(2026, 4, 15)] == 0.2
     assert scores[date(2026, 4, 16)] == 0.05
+
+    by_pattern = mold.load_anomaly_scores_by_day_and_pattern(tmp_path)
+    assert by_pattern[(date(2026, 4, 15), 1)] == 0.2
+    assert by_pattern[(date(2026, 4, 15), 6)] == 0.15
+    assert (
+        mold.resolve_alert_anomaly_score(
+            day=date(2026, 4, 15),
+            pattern=6,
+            scores_by_day_pattern=by_pattern,
+            scores_by_day=scores,
+        )
+        == 0.15
+    )
 
     chart = mold.load_daily_counts(tmp_path)
     assert chart is not None

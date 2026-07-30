@@ -23,6 +23,8 @@ function makeAlert(alertType: ManufacturingAlert['alertType']): ManufacturingAle
     evidence: { value: 3 },
     insightStatus: 'ready',
     insight: '確認観点: 設備設定変更を確認してください。',
+    // Fixture only — runtime value comes from alert API / prediction CSV.
+    anomalyScore: 0.15,
   };
 }
 
@@ -34,6 +36,7 @@ describe('buildAlertChatPrompt', () => {
     expect(prompt).toContain('predict_realtime を呼ばず');
     expect(prompt).toContain('search_agent に検索だけを1回');
     expect(prompt).toContain('種別: business_rule');
+    expect(prompt).toContain('異常予測モデルの異常値は0.15です');
   });
 
   it('does not mark prediction alerts as search only', () => {
@@ -41,5 +44,13 @@ describe('buildAlertChatPrompt', () => {
 
     expect(prompt).not.toContain('実行モード: search_only');
     expect(prompt).toContain('種別: prediction_ai');
+  });
+
+  it('omits anomaly score when not available', () => {
+    const alert = makeAlert('business_rule');
+    alert.anomalyScore = null;
+    const prompt = buildAlertChatPrompt(alert);
+
+    expect(prompt).not.toContain('異常予測モデルの異常値は');
   });
 });

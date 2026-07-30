@@ -3,7 +3,7 @@
 # Optional configuration for dr task compose / `task:dev` (drdev)
 
 # Development server ports — order matters (started top to bottom).
-# Dashboard needs fastapi_server + frontend_web; agent/MCP are optional for chat.
+# Full local stack for dashboard + chat (agent needs MCP for tools).
 ports:
   - name: fastapi_server
     port: 8080
@@ -13,5 +13,6 @@ ports:
     print_url: true
   - name: agent
     port: 8842
+    print_url: true
   - name: mcp_server
     port: 9000

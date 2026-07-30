@@ -51,8 +51,9 @@ DEFAULT_ANOMALY_SCORE_THRESHOLD = 0.085
 EXCEL_SERIAL_EPOCH = date(1899, 12, 30)
 PREDICTION_CSV_GLOB = "*_features_予測結果.csv"
 
-# Cache parsed max anomaly scores keyed by resolved CSV path + mtime.
+# Cache parsed anomaly scores keyed by resolved CSV path + mtime.
 _anomaly_score_cache: dict[str, dict[date, float]] = {}
+_anomaly_score_by_day_pattern_cache: dict[str, dict[tuple[date, int], float]] = {}
 
 # Pipeline Japanese column -> API metric key
 TARGET_COLUMN_TO_METRIC: dict[str, MetricName] = {
@@ -190,35 +191,40 @@ def parse_production_day(raw: str) -> date | None:
         return None
 
 
-def load_daily_max_anomaly_scores(data_dir: Path | None = None) -> dict[date, float]:
-    """Return max ANOMALY_SCORE per 生産日 from the prediction results CSV."""
-    path = find_prediction_csv(data_dir)
-    if path is None:
-        return {}
+def _prediction_csv_cache_key(path: Path) -> str:
+    return f"{path.resolve()}:{path.stat().st_mtime_ns}"
 
-    cache_key = f"{path.resolve()}:{path.stat().st_mtime_ns}"
-    cached = _anomaly_score_cache.get(cache_key)
-    if cached is not None:
-        return cached
 
-    max_scores: dict[date, float] = {}
+def _scan_prediction_anomaly_scores(
+    path: Path,
+) -> tuple[dict[date, float], dict[tuple[date, int], float]]:
+    """Scan prediction CSV once → max score by day, and by (day, pattern)."""
+    max_by_day: dict[date, float] = {}
+    max_by_day_pattern: dict[tuple[date, int], float] = {}
     with path.open(encoding="utf-8-sig", newline="") as handle:
         reader = csv.reader(handle)
         try:
             header = next(reader)
         except StopIteration:
-            _anomaly_score_cache[cache_key] = max_scores
-            return max_scores
+            return max_by_day, max_by_day_pattern
 
         try:
             score_idx = header.index("ANOMALY_SCORE")
             date_idx = header.index("生産日")
         except ValueError:
-            _anomaly_score_cache[cache_key] = max_scores
-            return max_scores
+            return max_by_day, max_by_day_pattern
+
+        pattern_idx: int | None
+        try:
+            pattern_idx = header.index("吐出パターン番号")
+        except ValueError:
+            pattern_idx = None
 
         for row in reader:
-            if len(row) <= max(score_idx, date_idx):
+            needed = max(score_idx, date_idx)
+            if pattern_idx is not None:
+                needed = max(needed, pattern_idx)
+            if len(row) <= needed:
                 continue
             day = parse_production_day(row[date_idx])
             if day is None:
@@ -227,12 +233,74 @@ def load_daily_max_anomaly_scores(data_dir: Path | None = None) -> dict[date, fl
                 score = float(row[score_idx])
             except ValueError:
                 continue
-            current = max_scores.get(day)
-            if current is None or score > current:
-                max_scores[day] = score
 
-    _anomaly_score_cache[cache_key] = max_scores
-    return max_scores
+            current_day = max_by_day.get(day)
+            if current_day is None or score > current_day:
+                max_by_day[day] = score
+
+            if pattern_idx is None:
+                continue
+            try:
+                pattern = int(float(row[pattern_idx]))
+            except ValueError:
+                continue
+            key = (day, pattern)
+            current_pattern = max_by_day_pattern.get(key)
+            if current_pattern is None or score > current_pattern:
+                max_by_day_pattern[key] = score
+
+    return max_by_day, max_by_day_pattern
+
+
+def load_daily_max_anomaly_scores(data_dir: Path | None = None) -> dict[date, float]:
+    """Return max ANOMALY_SCORE per 生産日 from the prediction results CSV."""
+    path = find_prediction_csv(data_dir)
+    if path is None:
+        return {}
+
+    cache_key = _prediction_csv_cache_key(path)
+    cached = _anomaly_score_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    max_by_day, max_by_day_pattern = _scan_prediction_anomaly_scores(path)
+    _anomaly_score_cache[cache_key] = max_by_day
+    _anomaly_score_by_day_pattern_cache[cache_key] = max_by_day_pattern
+    return max_by_day
+
+
+def load_anomaly_scores_by_day_and_pattern(
+    data_dir: Path | None = None,
+) -> dict[tuple[date, int], float]:
+    """Return max ANOMALY_SCORE per (生産日, 吐出パターン番号) from prediction CSV."""
+    path = find_prediction_csv(data_dir)
+    if path is None:
+        return {}
+
+    cache_key = _prediction_csv_cache_key(path)
+    cached = _anomaly_score_by_day_pattern_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    max_by_day, max_by_day_pattern = _scan_prediction_anomaly_scores(path)
+    _anomaly_score_cache[cache_key] = max_by_day
+    _anomaly_score_by_day_pattern_cache[cache_key] = max_by_day_pattern
+    return max_by_day_pattern
+
+
+def resolve_alert_anomaly_score(
+    *,
+    day: date,
+    pattern: int | None,
+    scores_by_day_pattern: dict[tuple[date, int], float],
+    scores_by_day: dict[date, float],
+) -> float | None:
+    """Pick the anomaly score for a selected alert from prediction CSV aggregates."""
+    if pattern is not None:
+        score = scores_by_day_pattern.get((day, pattern))
+        if score is not None:
+            return score
+    return scores_by_day.get(day)
 
 
 def classify_phase2_csv_rows(
@@ -306,6 +374,8 @@ def build_xr_charts_and_alerts(
         anomaly_rows = load_anomalies(data_dir)
     control_limits_payload = load_control_limits(data_dir)
     anomaly_lookup = build_anomaly_lookup(anomaly_rows)
+    scores_by_day = load_daily_max_anomaly_scores(data_dir)
+    scores_by_day_pattern = load_anomaly_scores_by_day_and_pattern(data_dir)
 
     control_limits = control_limits_payload.get("control_limits", {})
 
@@ -411,6 +481,12 @@ def build_xr_charts_and_alerts(
                                 "cl": float(anomaly["cl"]),
                                 "targetColumn": target_column,
                             },
+                            anomaly_score=resolve_alert_anomaly_score(
+                                day=day,
+                                pattern=pattern,
+                                scores_by_day_pattern=scores_by_day_pattern,
+                                scores_by_day=scores_by_day,
+                            ),
                         )
                     )
 

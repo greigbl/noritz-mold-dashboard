@@ -167,6 +167,9 @@ workflow:
 
     # Uncomment to inject A2A remote agent tools (must also uncomment function_groups.remote_agent above):
     # - remote_agent
+  # Required for AG-UI: convert NAT ChatResponseChunk → DRAgentEventResponse
+  middleware:
+    - datarobot_dragent_normalization
   system_prompt: |-
     あなたは製造品質管理のオーケストレーターです。
     あなた自身が品質判定と現場向けの最終回答作成を担当します。
@@ -272,3 +275,7 @@ workflow:
     - 次の質問・アクションを促す文を含めない
     - データのフォーマット（単位など）に関する話は避ける
     - 不要な追加説明や進行提案は付けず、最終回答だけを返す
+
+middleware:
+  datarobot_dragent_normalization:
+    _type: datarobot_dragent_normalization

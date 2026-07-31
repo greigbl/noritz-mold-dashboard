@@ -1,6 +1,7 @@
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -8,7 +9,9 @@ import {
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarSeparator,
 } from '@/components/ui/sidebar';
+import { ViolationRulesReference } from '@/components/block/chat/violation-rules-reference';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MessageSquare, MessageSquareText, MoreHorizontal, Plus, LoaderCircle } from 'lucide-react';
 import {
@@ -46,6 +49,7 @@ export interface ChatSidebarProps {
   topMenuitem?: JSX.Element | JSX.Element[];
   header?: JSX.Element;
   footer?: JSX.Element;
+  violationRuleDescriptions?: Record<string, string>;
 }
 
 export function ChatSidebar({
@@ -59,6 +63,7 @@ export function ChatSidebar({
   topMenuitem,
   header,
   footer,
+  violationRuleDescriptions,
 }: ChatSidebarProps) {
   const { t } = useTranslation();
   const [chatToDelete, setChatToDelete] = useState<ChatListItem | null>(null);
@@ -111,7 +116,7 @@ export function ChatSidebar({
                     >
                       <div>
                         {getIcon(chat.id)}
-                        <span>{chat.name || 'New Chat'}</span>
+                        <span title={chat.name || 'New Chat'}>{chat.name || 'New Chat'}</span>
                       </div>
                     </SidebarMenuButton>
                     {chat.initialised && !chatToDelete && (
@@ -141,6 +146,10 @@ export function ChatSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarSeparator />
+      <SidebarFooter className="shrink-0 border-t-0 pt-2 pb-3">
+        <ViolationRulesReference descriptions={violationRuleDescriptions} />
+      </SidebarFooter>
       {footer ? footer : null}
       <ConfirmDialogModal
         open={open}

@@ -195,6 +195,38 @@ async def test_chat_name_from_empty_string_content(
     assert chat.name == "New Chat"
 
 
+async def test_chat_name_from_manufacturing_alert_prompt(
+    storage_agent: AGUIAgentWithStorage,
+    stub_agent: StubAgent,
+    chat_repo: ChatRepository,
+) -> None:
+    from app.ag_ui.storage import derive_chat_name_from_user_message
+
+    prompt = (
+        "次の製造アラートについて、原因仮説を整理してください。\n"
+        "実行モード: search_only\n"
+        "種別: business_rule\n"
+        "対象指標: production_flow_rate\n"
+        "日付: 2026-04-21\n"
+        "タイトル: 生産総合流速でJIS管理図違反を検知\n"
+    )
+    assert derive_chat_name_from_user_message(prompt) == "生産総合流速 / 2026-04-21"
+    assert derive_chat_name_from_user_message("Hello there") == "Hello there"
+
+    stub_agent.set_events()
+    await run(
+        storage_agent,
+        "t-alert-name",
+        UserMessage(id="m1", content=prompt, name="u1"),
+    )
+
+    chat = await chat_repo.get_chat_by_thread_id(
+        user_uuid=storage_agent._user_id, thread_id="t-alert-name"
+    )
+    assert chat is not None
+    assert chat.name == "生産総合流速 / 2026-04-21"
+
+
 class TC(NamedTuple):
     agui_id: str
     name: str

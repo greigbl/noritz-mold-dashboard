@@ -64,6 +64,59 @@ from app.messages import (
 
 logger = logging.getLogger(__name__)
 
+# Keep in sync with manufacturing metric display labels.
+_METRIC_LABELS_JA = {
+    "lots_produced": "生産ロット数",
+    "bleedout_rate": "ブリードアウト率",
+    "coater_temperature": "コーター部温度",
+    "coater_humidity": "コーター部相対湿度",
+    "pump_pressure": "ポンプ圧力",
+    "drying_zone1_temperature": "乾燥ゾーン1温度",
+    "drying_zone2_temperature": "乾燥ゾーン2温度",
+    "uv_irradiance": "UV照度",
+    "lamp_lighting_hours": "ランプ点灯時間",
+    "chamber_o2_concentration": "チャンバー内O2濃度",
+    "uv_roll_temperature": "UVロール温度",
+    "a_agent_flow_pressure": "A剤流圧",
+    "b_agent_flow_pressure": "B剤流圧",
+    "a_tank1_pressure": "A剤タンク1圧力",
+    "a_tank2_pressure": "A剤タンク2圧力",
+    "b_tank1_pressure": "B剤タンク1圧力",
+    "b_tank2_pressure": "B剤タンク2圧力",
+    "a_mix_ratio_speed": "A剤配合比速度",
+    "b_mix_ratio_speed": "B剤配合比速度",
+    "production_flow_rate": "生産総合流速",
+    "production_discharge_time": "生産吐出時間",
+}
+
+
+def derive_chat_name_from_user_message(content: str) -> str:
+    """Build a sidebar-friendly chat title from the first user message.
+
+    Manufacturing alert prompts include structured lines like
+    ``対象指標: production_flow_rate`` and ``日付: 2026-04-21``. Prefer the
+    Japanese metric name + date so history entries are searchable by condition.
+    """
+    metric: str | None = None
+    alert_date: str | None = None
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if line.startswith("対象指標:"):
+            metric = line.split(":", 1)[1].strip() or None
+        elif line.startswith("日付:"):
+            alert_date = line.split(":", 1)[1].strip() or None
+
+    if metric or alert_date:
+        metric_label = _METRIC_LABELS_JA.get(metric or "", metric or "製造条件")
+        if alert_date:
+            return f"{metric_label} / {alert_date}"
+        return metric_label
+
+    stripped = content.strip()
+    if stripped:
+        return stripped[:20]
+    return "New Chat"
+
 
 @dataclass
 class StorageStateMachineState:
@@ -158,7 +211,7 @@ class AGUIAgentWithStorage(AGUIAgent):
                 and isinstance(input.messages[0].content, str)
                 and len(input.messages[0].content.strip()) > 0
             ):
-                chat_name = input.messages[0].content[:20].strip()
+                chat_name = derive_chat_name_from_user_message(input.messages[0].content)
             else:
                 chat_name = "New Chat"
 

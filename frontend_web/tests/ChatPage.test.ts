@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAlertChatPrompt } from '../src/pages/ChatPage';
+import { buildAlertChatPrompt, buildAlertChatTitle } from '../src/pages/ChatPage';
 import type { ManufacturingAlert } from '../src/api/manufacturing/types';
 
 function makeAlert(alertType: ManufacturingAlert['alertType']): ManufacturingAlert {
@@ -37,6 +37,9 @@ describe('buildAlertChatPrompt', () => {
     expect(prompt).toContain('search_agent に検索だけを1回');
     expect(prompt).toContain('種別: business_rule');
     expect(prompt).toContain('異常予測モデルの異常値は0.15です');
+    expect(prompt).toContain('Web検索要件:');
+    expect(prompt).toContain('日本語の検索クエリで tavily_search');
+    expect(prompt).toContain('是正・再発防止の具体的な対処法');
   });
 
   it('does not mark prediction alerts as search only', () => {
@@ -52,5 +55,17 @@ describe('buildAlertChatPrompt', () => {
     const prompt = buildAlertChatPrompt(alert);
 
     expect(prompt).not.toContain('異常予測モデルの異常値は');
+  });
+});
+
+describe('buildAlertChatTitle', () => {
+  it('uses Japanese metric name and date', () => {
+    expect(buildAlertChatTitle(makeAlert('business_rule'))).toBe('コーター部温度 / 2026-04-27');
+    expect(buildAlertChatTitle({ ...makeAlert('business_rule'), metric: 'production_flow_rate' })).toBe(
+      '生産総合流速 / 2026-04-27'
+    );
+    expect(buildAlertChatTitle({ ...makeAlert('business_rule'), metric: 'b_tank1_pressure' })).toBe(
+      'B剤タンク1圧力 / 2026-04-27'
+    );
   });
 });

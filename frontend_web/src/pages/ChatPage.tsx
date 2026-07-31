@@ -26,6 +26,7 @@ import {
   isThinkingEvent,
 } from '@/components/block/chat/types';
 import { type MessageResponse } from '@/api/chat/types';
+import { useUpdateChat } from '@/api/chat/hooks';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useMainLayout } from '@/components/block/chat/main-layout-context';
 
@@ -60,6 +61,8 @@ export function ChatImplementation({ chatId }: { chatId: string }) {
   const alertId = searchParams.get('alertId') ?? undefined;
   const { data: alert } = useManufacturingAlert(alertId);
   const sentAlertPromptRef = useRef<string | null>(null);
+  const { refetchChats } = useMainLayout();
+  const { mutateAsync: updateChat } = useUpdateChat();
   const {
     sendMessage,
     userInput,
@@ -90,8 +93,26 @@ export function ChatImplementation({ chatId }: { chatId: string }) {
     }
 
     sentAlertPromptRef.current = `${chatId}:${alert.id}`;
-    void sendMessage(alertPrompt);
-  }, [alert, alertPrompt, chatId, isAgentRunning, isLoadingHistory, sendMessage]);
+    const chatTitle = buildAlertChatTitle(alert);
+    void (async () => {
+      await sendMessage(alertPrompt);
+      try {
+        await updateChat({ chatId, name: chatTitle });
+        await refetchChats();
+      } catch (error) {
+        console.error('Failed to rename alert chat', error);
+      }
+    })();
+  }, [
+    alert,
+    alertPrompt,
+    chatId,
+    isAgentRunning,
+    isLoadingHistory,
+    refetchChats,
+    sendMessage,
+    updateChat,
+  ]);
 
   const { scrollContainerRef, onChatScroll } = useChatScroll({
     chatId,
@@ -169,6 +190,33 @@ export function ChatImplementation({ chatId }: { chatId: string }) {
   );
 }
 
+export function buildAlertChatTitle(alert: ManufacturingAlert) {
+  const metricLabels: Record<ManufacturingAlert['metric'], string> = {
+    lots_produced: '生産ロット数',
+    bleedout_rate: 'ブリードアウト率',
+    coater_temperature: 'コーター部温度',
+    coater_humidity: 'コーター部相対湿度',
+    pump_pressure: 'ポンプ圧力',
+    drying_zone1_temperature: '乾燥ゾーン1温度',
+    drying_zone2_temperature: '乾燥ゾーン2温度',
+    uv_irradiance: 'UV照度',
+    lamp_lighting_hours: 'ランプ点灯時間',
+    chamber_o2_concentration: 'チャンバー内O2濃度',
+    uv_roll_temperature: 'UVロール温度',
+    a_agent_flow_pressure: 'A剤流圧',
+    b_agent_flow_pressure: 'B剤流圧',
+    a_tank1_pressure: 'A剤タンク1圧力',
+    a_tank2_pressure: 'A剤タンク2圧力',
+    b_tank1_pressure: 'B剤タンク1圧力',
+    b_tank2_pressure: 'B剤タンク2圧力',
+    a_mix_ratio_speed: 'A剤配合比速度',
+    b_mix_ratio_speed: 'B剤配合比速度',
+    production_flow_rate: '生産総合流速',
+    production_discharge_time: '生産吐出時間',
+  };
+  return `${metricLabels[alert.metric] ?? alert.metric} / ${alert.date}`;
+}
+
 export function buildAlertChatPrompt(alert: ManufacturingAlert) {
   const searchOnlyInstructions =
     alert.alertType === 'prediction_ai'
@@ -178,8 +226,13 @@ export function buildAlertChatPrompt(alert: ManufacturingAlert) {
           'この依頼では predict_realtime を呼ばず、既存アラート情報をもとに search_agent に検索だけを1回行わせてください。',
         ];
   const lines = [
-    '次の製造アラートについて、原因仮説、確認すべき工程データ、初動対応を整理してください。',
+    '次の製造アラートについて、原因仮説、確認すべき工程データ、初動対応、是正・再発防止の対処案を整理してください。',
     ...searchOnlyInstructions,
+    '',
+    'Web検索要件:',
+    '- 日本語の検索クエリで tavily_search を使い、このアラートに関連する追加情報を調べてください。',
+    '- 目的は、原因の特定に役立つ情報と、是正・再発防止の具体的な対処法を集めることです。',
+    '- 検索観点には、対象指標名・違反ルール・吐出パターン・異常値など、アラート固有の情報を含めてください。',
     '',
     `アラートID: ${alert.id}`,
     `種別: ${alert.alertType}`,

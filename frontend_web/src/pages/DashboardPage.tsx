@@ -54,11 +54,6 @@ type XrChartRow = RbarChartPoint & {
 
 type JisRuleDescriptions = Record<string, string>;
 
-type ViolationRuleDetail = {
-  rule: number;
-  description: string;
-};
-
 const DEFAULT_ANOMALY_SCORE_THRESHOLD = 0.085;
 const ANOMALY_THRESHOLD_STORAGE_KEY = 'manufacturing.anomalyScoreThreshold';
 const ANOMALY_BAR_FILL = '#dc2626';
@@ -154,33 +149,6 @@ function resolveRuleDescription(
   descriptions: JisRuleDescriptions | undefined
 ) {
   return descriptions?.[String(rule)] ?? '';
-}
-
-function ViolationRuleDossier({ details }: { details: ViolationRuleDetail[] }) {
-  if (!details.length) {
-    return null;
-  }
-
-  return (
-    <div className="mt-2 space-y-1.5 rounded-md border border-dashed border-border/80 bg-muted/40 p-2">
-      {details.map(detail => (
-        <div key={detail.rule} className="flex gap-2 caption-01">
-          <span
-            className={cn(
-              'mt-0.5 size-1.5 shrink-0 rounded-full',
-              detail.rule === 1 ? 'bg-destructive-foreground' : 'bg-warning'
-            )}
-          />
-          <div className="min-w-0">
-            <span className="font-medium">ルール{detail.rule}</span>
-            {detail.description ? (
-              <span className="text-muted-foreground"> — {detail.description}</span>
-            ) : null}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function DailyCountBarChart({
@@ -492,7 +460,6 @@ function XrControlChart({
                 y={chart.centerLine}
                 stroke="var(--muted-foreground)"
                 strokeWidth={1.2}
-                strokeDasharray="2 3"
                 label={{
                   value: 'CL',
                   position: 'insideTopRight',
@@ -538,14 +505,6 @@ function XrControlChart({
                 ? ` / 違反ルール ${alertPoint.violationRules.join(',')}`
                 : ''}
             </div>
-            {alertPoint.violationRules?.length ? (
-              <ViolationRuleDossier
-                details={alertPoint.violationRules.map(rule => ({
-                  rule,
-                  description: resolveRuleDescription(rule, jisRuleDescriptions),
-                }))}
-              />
-            ) : null}
           </div>
         ) : null}
       </CardContent>
@@ -596,7 +555,9 @@ function AlertList({
               ) : (
                 <ShieldAlert className="size-4 shrink-0 text-warning" />
               )}
-              <span className="body truncate">{alert.title}</span>
+              <span className="body truncate">
+                {metricLabels[alert.metric]} {formatDate(alert.date)}
+              </span>
             </div>
             <Badge
               variant={alert.severity === 'critical' ? 'destructive' : 'warning'}
@@ -605,9 +566,8 @@ function AlertList({
               {alert.severity}
             </Badge>
           </div>
-          <div className="caption-01 text-muted-foreground">
-            {metricLabels[alert.metric]} / {formatDate(alert.date)} / 実績{' '}
-            {formatAlertValue(alert)}
+          <div className="caption-01 truncate text-muted-foreground">
+            {formatViolationRules(alert)} / 実績 {formatAlertValue(alert)}
           </div>
         </Link>
       ))}

@@ -27,14 +27,24 @@ from pathlib import Path
 
 from app.manufacturing.config import (
     DETECTION_DAYS as CONFIG_DETECTION_DAYS,
+)
+from app.manufacturing.config import (
     JIS_RULES_DESCRIPTION,
+)
+from app.manufacturing.config import (
     PLOT_DAYS as CONFIG_PLOT_DAYS,
+)
+from app.manufacturing.domain.anomaly_scores import (
+    DEFAULT_ANOMALY_SCORE_THRESHOLD,
+    AnomalyScoreAggregates,
+    empty_anomaly_scores,
 )
 from app.manufacturing.domain.models import (
     DailyCountChart,
     DailyCountPoint,
     ManufacturingAlert,
     ManufacturingDailyRecord,
+    ManufacturingDashboard,
     MetricName,
     RbarChart,
     RbarChartPoint,
@@ -47,13 +57,7 @@ PLOT_DAYS = CONFIG_PLOT_DAYS
 DETECTION_DAYS = CONFIG_DETECTION_DAYS
 BUSINESS_RULE_ID = "jis.xr.violation_rules"
 RULE_VERSION = "1.0.0"
-DEFAULT_ANOMALY_SCORE_THRESHOLD = 0.085
 EXCEL_SERIAL_EPOCH = date(1899, 12, 30)
-PREDICTION_CSV_GLOB = "*_features_予測結果.csv"
-
-# Cache parsed anomaly scores keyed by resolved CSV path + mtime.
-_anomaly_score_cache: dict[str, dict[date, float]] = {}
-_anomaly_score_by_day_pattern_cache: dict[str, dict[tuple[date, int], float]] = {}
 
 # Pipeline Japanese column -> API metric key
 TARGET_COLUMN_TO_METRIC: dict[str, MetricName] = {
@@ -141,14 +145,19 @@ def load_anomalies(data_dir: Path | None = None) -> list[dict[str, str]]:
         return [dict(row) for row in csv.DictReader(handle)]
 
 
-def load_daily_counts(data_dir: Path | None = None) -> DailyCountChart | None:
+def load_daily_counts(
+    data_dir: Path | None = None,
+    *,
+    scores_by_day: dict[date, float] | None = None,
+    anomaly_score_threshold: float = DEFAULT_ANOMALY_SCORE_THRESHOLD,
+) -> DailyCountChart | None:
     path = (data_dir or get_mold_data_dir()) / "phase3_daily_data_counts.json"
     if not path.exists():
         return None
     with path.open(encoding="utf-8") as handle:
         payload = json.load(handle)
     daily_counts = payload.get("daily_counts") or {}
-    max_scores = load_daily_max_anomaly_scores(data_dir)
+    max_scores = scores_by_day if scores_by_day is not None else {}
     points = [
         DailyCountPoint(
             date=date.fromisoformat(day),
@@ -159,14 +168,8 @@ def load_daily_counts(data_dir: Path | None = None) -> DailyCountChart | None:
     ]
     return DailyCountChart(
         points=points,
-        anomaly_score_threshold=DEFAULT_ANOMALY_SCORE_THRESHOLD,
+        anomaly_score_threshold=anomaly_score_threshold,
     )
-
-
-def find_prediction_csv(data_dir: Path | None = None) -> Path | None:
-    root = data_dir or get_mold_data_dir()
-    matches = sorted(root.glob(PREDICTION_CSV_GLOB))
-    return matches[0] if matches else None
 
 
 def parse_production_day(raw: str) -> date | None:
@@ -191,103 +194,6 @@ def parse_production_day(raw: str) -> date | None:
         return None
 
 
-def _prediction_csv_cache_key(path: Path) -> str:
-    return f"{path.resolve()}:{path.stat().st_mtime_ns}"
-
-
-def _scan_prediction_anomaly_scores(
-    path: Path,
-) -> tuple[dict[date, float], dict[tuple[date, int], float]]:
-    """Scan prediction CSV once → max score by day, and by (day, pattern)."""
-    max_by_day: dict[date, float] = {}
-    max_by_day_pattern: dict[tuple[date, int], float] = {}
-    with path.open(encoding="utf-8-sig", newline="") as handle:
-        reader = csv.reader(handle)
-        try:
-            header = next(reader)
-        except StopIteration:
-            return max_by_day, max_by_day_pattern
-
-        try:
-            score_idx = header.index("ANOMALY_SCORE")
-            date_idx = header.index("生産日")
-        except ValueError:
-            return max_by_day, max_by_day_pattern
-
-        pattern_idx: int | None
-        try:
-            pattern_idx = header.index("吐出パターン番号")
-        except ValueError:
-            pattern_idx = None
-
-        for row in reader:
-            needed = max(score_idx, date_idx)
-            if pattern_idx is not None:
-                needed = max(needed, pattern_idx)
-            if len(row) <= needed:
-                continue
-            day = parse_production_day(row[date_idx])
-            if day is None:
-                continue
-            try:
-                score = float(row[score_idx])
-            except ValueError:
-                continue
-
-            current_day = max_by_day.get(day)
-            if current_day is None or score > current_day:
-                max_by_day[day] = score
-
-            if pattern_idx is None:
-                continue
-            try:
-                pattern = int(float(row[pattern_idx]))
-            except ValueError:
-                continue
-            key = (day, pattern)
-            current_pattern = max_by_day_pattern.get(key)
-            if current_pattern is None or score > current_pattern:
-                max_by_day_pattern[key] = score
-
-    return max_by_day, max_by_day_pattern
-
-
-def load_daily_max_anomaly_scores(data_dir: Path | None = None) -> dict[date, float]:
-    """Return max ANOMALY_SCORE per 生産日 from the prediction results CSV."""
-    path = find_prediction_csv(data_dir)
-    if path is None:
-        return {}
-
-    cache_key = _prediction_csv_cache_key(path)
-    cached = _anomaly_score_cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    max_by_day, max_by_day_pattern = _scan_prediction_anomaly_scores(path)
-    _anomaly_score_cache[cache_key] = max_by_day
-    _anomaly_score_by_day_pattern_cache[cache_key] = max_by_day_pattern
-    return max_by_day
-
-
-def load_anomaly_scores_by_day_and_pattern(
-    data_dir: Path | None = None,
-) -> dict[tuple[date, int], float]:
-    """Return max ANOMALY_SCORE per (生産日, 吐出パターン番号) from prediction CSV."""
-    path = find_prediction_csv(data_dir)
-    if path is None:
-        return {}
-
-    cache_key = _prediction_csv_cache_key(path)
-    cached = _anomaly_score_by_day_pattern_cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    max_by_day, max_by_day_pattern = _scan_prediction_anomaly_scores(path)
-    _anomaly_score_cache[cache_key] = max_by_day
-    _anomaly_score_by_day_pattern_cache[cache_key] = max_by_day_pattern
-    return max_by_day_pattern
-
-
 def resolve_alert_anomaly_score(
     *,
     day: date,
@@ -295,7 +201,7 @@ def resolve_alert_anomaly_score(
     scores_by_day_pattern: dict[tuple[date, int], float],
     scores_by_day: dict[date, float],
 ) -> float | None:
-    """Pick the anomaly score for a selected alert from prediction CSV aggregates."""
+    """Pick the anomaly score for a selected alert from prediction aggregates."""
     if pattern is not None:
         score = scores_by_day_pattern.get((day, pattern))
         if score is not None:
@@ -360,6 +266,7 @@ def build_xr_charts_and_alerts(
     *,
     daily_rows: list[dict[str, str]] | None = None,
     anomaly_rows: list[dict[str, str]] | None = None,
+    anomaly_scores: AnomalyScoreAggregates | None = None,
 ) -> tuple[
     dict[MetricName, dict[str, RbarChart]],
     list[ManufacturingAlert],
@@ -374,8 +281,9 @@ def build_xr_charts_and_alerts(
         anomaly_rows = load_anomalies(data_dir)
     control_limits_payload = load_control_limits(data_dir)
     anomaly_lookup = build_anomaly_lookup(anomaly_rows)
-    scores_by_day = load_daily_max_anomaly_scores(data_dir)
-    scores_by_day_pattern = load_anomaly_scores_by_day_and_pattern(data_dir)
+    scores = anomaly_scores or empty_anomaly_scores()
+    scores_by_day = scores.by_day
+    scores_by_day_pattern = scores.by_day_pattern
 
     control_limits = control_limits_payload.get("control_limits", {})
 
@@ -583,11 +491,28 @@ def default_chart_for_metric(
 class MoldDashboardProvider:
     """Builds a full ManufacturingDashboard from Phase 0/2 pipeline outputs."""
 
+    def resolve_plot_start(
+        self,
+        *,
+        daily_rows: list[dict[str, str]] | None = None,
+    ) -> date:
+        rows = daily_rows if daily_rows is not None else load_daily_stats()
+        all_dates = [
+            parse_iso_date(row["注入開始日"])
+            for row in rows
+            if row.get("注入開始日")
+        ]
+        if not all_dates:
+            return date.today()
+        _, plot_start, _ = resolve_display_windows(all_dates)
+        return plot_start
+
     def build(
         self,
         *,
         daily_rows: list[dict[str, str]] | None = None,
         anomaly_rows: list[dict[str, str]] | None = None,
+        anomaly_scores: AnomalyScoreAggregates | None = None,
     ) -> ManufacturingDashboard:
         from app.manufacturing.domain.models import (
             ManufacturingDashboard,
@@ -595,9 +520,12 @@ class MoldDashboardProvider:
             ManufacturingSummary,
         )
 
+        scores = anomaly_scores or empty_anomaly_scores()
+
         xr_charts, alerts, patterns, plot_start, latest = build_xr_charts_and_alerts(
             daily_rows=daily_rows,
             anomaly_rows=anomaly_rows,
+            anomaly_scores=scores,
         )
         series = build_stub_series(plot_start, latest, alerts)
 
@@ -613,7 +541,7 @@ class MoldDashboardProvider:
         )
 
         return ManufacturingDashboard(
-            prediction_status="unavailable",
+            prediction_status=scores.status,
             range=ManufacturingRange(
                 start_date=plot_start,
                 end_date=latest,
@@ -637,7 +565,10 @@ class MoldDashboardProvider:
             rbar_charts=rbar_charts,
             xr_charts=xr_charts,
             available_patterns=patterns,
-            daily_count_chart=load_daily_counts(),
+            daily_count_chart=load_daily_counts(
+                scores_by_day=scores.by_day,
+                anomaly_score_threshold=scores.threshold,
+            ),
             jis_rule_descriptions={
                 str(rule): description
                 for rule, description in JIS_RULES_DESCRIPTION.items()

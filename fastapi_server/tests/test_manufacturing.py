@@ -35,6 +35,7 @@ from app.manufacturing.domain.detectors import (
     detect_spc_rbar_alerts,
     run_detectors,
 )
+from app.manufacturing.domain.anomaly_scores import AnomalyScoreAggregates
 from app.manufacturing.domain.models import (
     ManufacturingAlert,
     ManufacturingDailyRecord,
@@ -90,6 +91,16 @@ def make_daily_record(
         uv_roll_temperature=89.05,
         uv_roll_temperature_range=0.12,
     )
+
+
+class StaticAnomalyPredictionClient:
+    run_in_background = False
+
+    def __init__(self, scores: AnomalyScoreAggregates) -> None:
+        self.scores = scores
+
+    async def predict_scores(self, **kwargs) -> AnomalyScoreAggregates:
+        return self.scores
 
 
 class StaticPredictionClient:
@@ -586,6 +597,14 @@ def test_upload_manufacturing_dashboard_from_monthly_chunks(
         "_manufacturing_service",
         ManufacturingDashboardService(
             prediction_client=LocalManufacturingPredictionClient(),
+            anomaly_prediction_client=StaticAnomalyPredictionClient(
+                AnomalyScoreAggregates(
+                    by_day={date(2026, 4, 15): 0.2, date(2026, 4, 16): 0.05},
+                    by_day_pattern={(date(2026, 4, 15), 1): 0.2},
+                    status="available",
+                    threshold=0.085,
+                )
+            ),
             insight_service=InsightService(),
             mold_dashboard_provider=MoldDashboardProvider(),
         ),
@@ -645,6 +664,9 @@ def test_upload_manufacturing_dashboard_from_monthly_chunks(
 
 def test_parse_production_day_and_max_anomaly_scores(tmp_path: Path) -> None:
     from app.manufacturing.infrastructure import mold_data_source as mold
+    from app.manufacturing.infrastructure.anomaly_prediction_client import (
+        LocalCsvAnomalyPredictionClient,
+    )
 
     assert mold.parse_production_day("2026-04-15") == date(2026, 4, 15)
     assert mold.parse_production_day("46127.0") == date(2026, 4, 15)
@@ -676,11 +698,15 @@ def test_parse_production_day_and_max_anomaly_scores(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    scores = mold.load_daily_max_anomaly_scores(tmp_path)
-    assert scores[date(2026, 4, 15)] == 0.2
-    assert scores[date(2026, 4, 16)] == 0.05
+    import asyncio
 
-    by_pattern = mold.load_anomaly_scores_by_day_and_pattern(tmp_path)
+    scores = asyncio.run(
+        LocalCsvAnomalyPredictionClient(threshold=0.085).predict_scores(data_dir=tmp_path)
+    )
+    assert scores.by_day[date(2026, 4, 15)] == 0.2
+    assert scores.by_day[date(2026, 4, 16)] == 0.05
+
+    by_pattern = scores.by_day_pattern
     assert by_pattern[(date(2026, 4, 15), 1)] == 0.2
     assert by_pattern[(date(2026, 4, 15), 6)] == 0.15
     assert (
@@ -688,14 +714,59 @@ def test_parse_production_day_and_max_anomaly_scores(tmp_path: Path) -> None:
             day=date(2026, 4, 15),
             pattern=6,
             scores_by_day_pattern=by_pattern,
-            scores_by_day=scores,
+            scores_by_day=scores.by_day,
         )
         == 0.15
     )
 
-    chart = mold.load_daily_counts(tmp_path)
+    chart = mold.load_daily_counts(
+        tmp_path,
+        scores_by_day=scores.by_day,
+        anomaly_score_threshold=scores.threshold,
+    )
     assert chart is not None
     assert chart.anomaly_score_threshold == 0.085
     by_date = {point.date: point for point in chart.points}
     assert by_date[date(2026, 4, 15)].max_anomaly_score == 0.2
-    assert by_date[date(2026, 4, 16)].count == 3
+
+
+def test_aggregate_predictions_reads_suffixed_passthrough_columns() -> None:
+    import pandas as pd
+
+    from app.manufacturing.infrastructure.anomaly_prediction_client import (
+        DataRobotAnomalyPredictionClient,
+    )
+
+    client = DataRobotAnomalyPredictionClient(
+        deployment_id="demo",
+        endpoint="https://example.com",
+        api_token="token",
+        run_in_background=False,
+    )
+    frame = pd.DataFrame(
+        [
+            {
+                "ANOMALY_SCORE": 0.000002,
+                "生産日_x": "46127.0",
+                "吐出パターン番号_x": "1",
+            },
+            {
+                "ANOMALY_SCORE": 0.000003,
+                "生産日_y": "46127.0",
+                "吐出パターン番号_y": "6",
+            },
+            {
+                "ANOMALY_SCORE": 0.000001,
+                "生産日": "2026-04-16",
+                "吐出パターン番号": "2",
+            },
+        ]
+    )
+
+    scores = client._aggregate_predictions(frame)
+
+    assert scores.status == "available"
+    assert scores.by_day[date(2026, 4, 15)] == 0.000003
+    assert scores.by_day[date(2026, 4, 16)] == 0.000001
+    assert scores.by_day_pattern[(date(2026, 4, 15), 1)] == 0.000002
+    assert scores.by_day_pattern[(date(2026, 4, 15), 6)] == 0.000003

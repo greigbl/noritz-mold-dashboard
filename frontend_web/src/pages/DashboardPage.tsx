@@ -6,6 +6,7 @@ import {
   Bot,
   BrainCircuit,
   LineChart,
+  Loader2,
   RefreshCw,
   Settings,
   ShieldAlert,
@@ -54,7 +55,7 @@ type XrChartRow = RbarChartPoint & {
 
 type JisRuleDescriptions = Record<string, string>;
 
-const DEFAULT_ANOMALY_SCORE_THRESHOLD = 0.085;
+const DEFAULT_ANOMALY_SCORE_THRESHOLD = 1.5e-6;
 const ANOMALY_THRESHOLD_STORAGE_KEY = 'manufacturing.anomalyScoreThreshold';
 const ANOMALY_BAR_FILL = '#dc2626';
 const NORMAL_BAR_FILL = 'var(--primary)';
@@ -119,10 +120,6 @@ const xrMetricOptions: ManufacturingMetric[] = [
   'a_tank2_pressure',
   'b_tank1_pressure',
   'b_tank2_pressure',
-  'a_mix_ratio_speed',
-  'b_mix_ratio_speed',
-  'production_flow_rate',
-  'production_discharge_time',
 ];
 
 function formatDate(value: string) {
@@ -154,13 +151,17 @@ function resolveRuleDescription(
 function DailyCountBarChart({
   chart,
   anomalyThreshold,
+  predictionStatus,
 }: {
   chart: DailyCountChart | null | undefined;
   anomalyThreshold: number;
+  predictionStatus?: string;
 }) {
   if (!chart?.points.length) {
     return null;
   }
+
+  const isScoring = predictionStatus === 'running';
 
   const chartData = chart.points.map(point => {
     const maxScore =
@@ -178,9 +179,22 @@ function DailyCountBarChart({
   return (
     <Card className="rounded-md py-3">
       <CardHeader className="pb-1">
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <BarChart3 className="size-4" />
-          日次データ件数
+        <CardTitle className="flex items-center justify-between gap-2 text-sm font-medium">
+          <span className="flex items-center gap-2">
+            <BarChart3 className="size-4" />
+            日次データ件数
+          </span>
+          {isScoring ? (
+            <span
+              className="flex shrink-0 items-center gap-1.5 rounded-md border bg-background px-2 py-0.5"
+              role="status"
+              aria-live="polite"
+              aria-label="異常スコア算出中"
+            >
+              <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+              <span className="caption-01 font-normal text-muted-foreground">異常スコア算出中</span>
+            </span>
+          ) : null}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -826,6 +840,7 @@ export function DashboardPage() {
               <DailyCountBarChart
                 chart={dashboard.dailyCountChart}
                 anomalyThreshold={anomalyThreshold}
+                predictionStatus={dashboard.predictionStatus}
               />
             </div>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-2">

@@ -13,7 +13,9 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import Protocol
+from datetime import date
+from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
 
 from app.manufacturing.domain.models import (
     ManufacturingAlert,
@@ -22,6 +24,9 @@ from app.manufacturing.domain.models import (
     PredictionResult,
     PredictionStatus,
 )
+
+if TYPE_CHECKING:
+    from app.manufacturing.domain.anomaly_scores import AnomalyScoreAggregates
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,17 @@ class PredictionClient(Protocol):
     ) -> list[PredictionResult]: ...
 
 
+class AnomalyPredictionClient(Protocol):
+    run_in_background: bool
+
+    async def predict_scores(
+        self,
+        *,
+        min_day: date | None = None,
+        data_dir: Path | None = None,
+    ) -> "AnomalyScoreAggregates": ...
+
+
 class InsightGenerator(Protocol):
     async def prepare_insights(
         self, dashboard: ManufacturingDashboard
@@ -55,4 +71,10 @@ class InsightGenerator(Protocol):
 
 
 class MoldDashboardProvider(Protocol):
+    def resolve_plot_start(
+        self,
+        *,
+        daily_rows: list[dict[str, str]] | None = None,
+    ) -> date: ...
+
     def build(self) -> ManufacturingDashboard: ...

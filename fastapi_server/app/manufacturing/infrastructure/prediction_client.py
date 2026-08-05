@@ -225,9 +225,11 @@ class DataRobotPredictionClient:
 
 
 def create_prediction_client_from_env() -> PredictionClient:
-    deployment_id = os.getenv(MANUFACTURING_PREDICTION_DEPLOYMENT_ID) or os.getenv(
-        FALLBACK_DEPLOYMENT_ID
-    )
+    use_mold_pipeline = os.getenv("MANUFACTURING_MODE", "mold").lower() != "coater"
+    if use_mold_pipeline:
+        return LocalManufacturingPredictionClient()
+
+    deployment_id = os.getenv(FALLBACK_DEPLOYMENT_ID)
     endpoint = os.getenv(DATAROBOT_ENDPOINT)
     api_token = os.getenv(DATAROBOT_API_TOKEN) or os.getenv(DATAROBOT_API_KEY)
 

@@ -272,6 +272,21 @@ describe('DashboardPage', () => {
     expect(await screen.findByText('Chat target')).toBeInTheDocument();
   });
 
+  it('shows scoring spinner while anomaly predictions are running', async () => {
+    server.use(
+      http.get('*/api/v1/manufacturing/dashboard', () =>
+        HttpResponse.json({
+          ...dashboardResponse,
+          predictionStatus: 'running',
+        })
+      )
+    );
+
+    renderDashboard();
+
+    expect(await screen.findByRole('status', { name: '異常スコア算出中' })).toBeInTheDocument();
+  });
+
   it('updates anomaly score threshold from settings dialog', async () => {
     window.localStorage.removeItem('manufacturing.anomalyScoreThreshold');
     server.use(

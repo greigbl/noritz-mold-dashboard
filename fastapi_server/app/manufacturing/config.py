@@ -1,6 +1,6 @@
 # データファイル設定
 CONTROL_LIMIT_CALCULATION_FILE = "2025_TP15_モールド装置.csv"  # 管理限界計算用データ
-ANOMALY_DETECTION_FILE = "2026_TP15_モールド装置.csv"  # 異常検知判定用データ
+ANOMALY_DETECTION_FILE = "テストデータ_202604.csv"  # 異常検知判定用データ
 
 # Phase 2: 管理対象の特性値列名リスト
 TARGET_COLUMNS = [

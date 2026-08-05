@@ -128,7 +128,7 @@ class ManufacturingAlert(ManufacturingBaseModel):
     evidence: dict[str, Any]
     insight_status: InsightStatus = "not_requested"
     insight: str | None = None
-    # Max ANOMALY_SCORE for the alert's production day (from prediction CSV).
+    # Max ANOMALY_SCORE for the alert's production day (from live deployment or local fallback).
     anomaly_score: float | None = None
 
 

@@ -16,13 +16,19 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Sequence
+from datetime import date
 
 from app.manufacturing.application.ports import (
+    AnomalyPredictionClient,
     InsightGenerator,
     ManufacturingDataSet,
     ManufacturingDataSource,
     MoldDashboardProvider,
     PredictionClient,
+)
+from app.manufacturing.domain.anomaly_scores import (
+    AnomalyScoreAggregates,
+    empty_anomaly_scores,
 )
 from app.manufacturing.domain.detectors import (
     DetectorContext,
@@ -49,8 +55,10 @@ class ManufacturingDashboardService:
         data_source: ManufacturingDataSource | None = None,
         detectors: Sequence[ManufacturingDetector] | None = None,
         mold_dashboard_provider: MoldDashboardProvider | None = None,
+        anomaly_prediction_client: AnomalyPredictionClient | None = None,
     ) -> None:
         self.prediction_client = prediction_client
+        self.anomaly_prediction_client = anomaly_prediction_client
         self.insight_service = insight_service
         self.data_source = data_source
         self.detectors = (
@@ -63,6 +71,10 @@ class ManufacturingDashboardService:
         self._prediction_results: list[PredictionResult] | None = None
         self._prediction_job_key: str | None = None
         self._prediction_status: PredictionStatus | None = None
+        self._anomaly_task: asyncio.Task[AnomalyScoreAggregates] | None = None
+        self._anomaly_results: AnomalyScoreAggregates | None = None
+        self._anomaly_job_key: str | None = None
+        self._anomaly_status: PredictionStatus | None = None
 
     async def build_dashboard(
         self,
@@ -152,7 +164,9 @@ class ManufacturingDashboardService:
         if self.mold_dashboard_provider is None:
             raise ValueError("Mold dashboard provider is not configured.")
 
-        dashboard = self.mold_dashboard_provider.build()
+        plot_start = self.mold_dashboard_provider.resolve_plot_start()
+        anomaly_scores = await self.resolve_anomaly_scores(plot_start)
+        dashboard = self.mold_dashboard_provider.build(anomaly_scores=anomaly_scores)
         if dashboard.alerts:
             await self.insight_service.prepare_insights(dashboard)
 
@@ -174,6 +188,9 @@ class ManufacturingDashboardService:
         dashboard = self.mold_dashboard_provider.build(
             daily_rows=daily_rows,
             anomaly_rows=anomaly_rows if anomaly_rows is not None else [],
+            anomaly_scores=await self.resolve_anomaly_scores(
+                self.mold_dashboard_provider.resolve_plot_start(daily_rows=daily_rows)
+            ),
         )
         if dashboard.alerts:
             await self.insight_service.prepare_insights(dashboard)
@@ -219,6 +236,58 @@ class ManufacturingDashboardService:
             )
         )
         return [], "running"
+
+    async def resolve_anomaly_scores(
+        self,
+        plot_start: date,
+    ) -> AnomalyScoreAggregates:
+        if self.anomaly_prediction_client is None:
+            return empty_anomaly_scores()
+
+        if not getattr(self.anomaly_prediction_client, "run_in_background", False):
+            return await self.anomaly_prediction_client.predict_scores(
+                min_day=plot_start
+            )
+
+        job_key = plot_start.isoformat()
+        if self._anomaly_job_key != job_key:
+            self._anomaly_job_key = job_key
+            self._anomaly_results = None
+            self._anomaly_task = None
+            self._anomaly_status = None
+
+        if self._anomaly_results is not None:
+            return self._anomaly_results
+
+        if self._anomaly_task is not None:
+            if not self._anomaly_task.done():
+                pending = empty_anomaly_scores()
+                return AnomalyScoreAggregates(
+                    by_day={},
+                    by_day_pattern={},
+                    status="running",
+                    threshold=pending.threshold,
+                )
+
+            try:
+                self._anomaly_results = self._anomaly_task.result()
+                self._anomaly_status = self._anomaly_results.status
+            except Exception:
+                self._anomaly_results = empty_anomaly_scores()
+                self._anomaly_status = "error"
+            return self._anomaly_results
+
+        self._anomaly_status = "running"
+        self._anomaly_task = asyncio.create_task(
+            self.anomaly_prediction_client.predict_scores(min_day=plot_start)
+        )
+        pending = empty_anomaly_scores()
+        return AnomalyScoreAggregates(
+            by_day={},
+            by_day_pattern={},
+            status="running",
+            threshold=pending.threshold,
+        )
 
     def get_alert(self, alert_id: str) -> ManufacturingAlert:
         alert = self._alerts_by_id.get(alert_id)

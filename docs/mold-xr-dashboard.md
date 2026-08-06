@@ -34,6 +34,29 @@ using the DataRobot Python client (`Deployment.predict_batch`).
 - Scores are aggregated to daily maxima and per-(day, pattern) maxima for charts and chat context.
 - Tune highlighting with `MANUFACTURING_ANOMALY_SCORE_THRESHOLD` (default `1.5e-6` for the current model scale).
 
+## Monthly test data upload (phases 1–4)
+
+Phase 0 (training data / control limits) is **not** run in the app. Ship
+`phase0_control_limits.json` from offline training (`学習データ_202509-202603.csv`).
+
+Users upload one month of raw mold CSV (~`テストデータ_202604.csv` format) from the dashboard
+(**データ取込**) or via API:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/manufacturing/dashboard/process \
+  -F "file=@テストデータ_202604.csv"
+```
+
+The backend runs:
+
+1. **Phase 1** — missing-row validation → `phase1_missing_ids.json`
+2. **Phase 2** — daily X-R stats + JIS alerts → `phase2_daily_stats.csv`, `phase2_anomalies.csv`
+3. **Phase 3** — TOP25 feature engineering → `{upload_stem}_features.csv`, `phase3_daily_data_counts.json`
+4. **Phase 4** — live DataRobot batch scoring (background; dashboard polls until complete)
+
+Pipeline code is vendored from [noritz_dashboard/src](https://github.com/datarobot/noritz_dashboard/tree/main/src)
+under `fastapi_server/app/manufacturing/pipeline/`.
+
 ## Behavior
 
 - **Chart:** daily mean (`平均`) with Phase 0 CL / UCL / LCL

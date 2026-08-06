@@ -47,6 +47,7 @@ AlertSeverity = Literal["info", "warning", "critical"]
 AlertStatus = Literal["firing", "resolved"]
 InsightStatus = Literal["not_requested", "ready", "error"]
 PredictionStatus = Literal["available", "local", "running", "unavailable", "error"]
+DashboardDataStatus = Literal["empty", "ready"]
 
 
 def to_camel(value: str) -> str:
@@ -165,6 +166,9 @@ class DailyCountChart(ManufacturingBaseModel):
 
 
 class ManufacturingDashboard(ManufacturingBaseModel):
+    data_status: DashboardDataStatus = "ready"
+    preserve_file_on_reload: bool = True
+    source_file: str | None = None
     prediction_status: PredictionStatus
     range: ManufacturingRange
     summary: ManufacturingSummary

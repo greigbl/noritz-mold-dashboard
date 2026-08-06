@@ -25,6 +25,7 @@ from app.manufacturing.infrastructure.mold_data_source import (
     get_mold_data_dir,
     parse_production_day,
 )
+from app.manufacturing.infrastructure.mold_session import load_raw_passthrough_series
 
 MOLD_FEATURES_CSV_ENV = "MOLD_FEATURES_CSV"
 TEST_FEATURES_CSV_GLOB = "テストデータ_*_features.csv"
@@ -32,6 +33,7 @@ FEATURES_CSV_GLOB = "*_features.csv"
 LEGACY_PREDICTION_CSV_GLOB = "*_features_予測結果.csv"
 
 PASSTHROUGH_COLUMNS = ("生産日", "吐出パターン番号")
+REQUIRED_PASSTHROUGH_COLUMNS = ("生産日",)
 
 PREDICTION_OUTPUT_COLUMNS = frozenset(
     {
@@ -53,11 +55,11 @@ def find_features_csv(data_dir: Path | None = None) -> Path | None:
     root = data_dir or get_mold_data_dir()
     test_matches = sorted(root.glob(TEST_FEATURES_CSV_GLOB))
     if test_matches:
-        return test_matches[-1]
+        return max(test_matches, key=lambda path: path.stat().st_mtime)
 
     matches = sorted(root.glob(FEATURES_CSV_GLOB))
     if matches:
-        return matches[0]
+        return max(matches, key=lambda path: path.stat().st_mtime)
     legacy_matches = sorted(root.glob(LEGACY_PREDICTION_CSV_GLOB))
     return legacy_matches[0] if legacy_matches else None
 
@@ -79,7 +81,7 @@ def load_feature_rows(
     if path is None:
         return []
 
-    required = set(feature_columns) | set(PASSTHROUGH_COLUMNS)
+    required = set(feature_columns) | set(REQUIRED_PASSTHROUGH_COLUMNS)
     rows: list[dict[str, str]] = []
 
     with path.open(encoding="utf-8-sig", newline="") as handle:
@@ -87,28 +89,62 @@ def load_feature_rows(
         if reader.fieldnames is None:
             return []
 
-        missing = [column for column in required if column not in reader.fieldnames]
-        if missing:
+        fieldnames = set(reader.fieldnames)
+        optional_passthrough = [
+            column
+            for column in PASSTHROUGH_COLUMNS
+            if column not in REQUIRED_PASSTHROUGH_COLUMNS and column in fieldnames
+        ]
+        missing_passthrough = [
+            column for column in PASSTHROUGH_COLUMNS if column not in fieldnames
+        ]
+        raw_passthrough = (
+            load_raw_passthrough_series(data_dir=data_dir, columns=tuple(missing_passthrough))
+            if missing_passthrough
+            else None
+        )
+        output_columns = list(required | set(optional_passthrough) | set(missing_passthrough))
+
+        missing_required = [
+            column
+            for column in REQUIRED_PASSTHROUGH_COLUMNS
+            if column not in fieldnames and (raw_passthrough is None or column not in raw_passthrough)
+        ]
+        if missing_required:
             raise ValueError(
                 f"Features file '{path.name}' is missing deployment columns: "
-                f"{', '.join(missing)}"
+                f"{', '.join(missing_required)}"
             )
 
-        for row in reader:
-            if min_day is not None:
-                day = parse_production_day(row.get("生産日", ""))
-                if day is None or day < min_day:
-                    continue
+        for row_index, row in enumerate(reader):
+            record = {column: row.get(column, "") for column in output_columns}
+            if raw_passthrough is not None:
+                for column in missing_passthrough:
+                    values = raw_passthrough.get(column) or []
+                    if row_index < len(values):
+                        record[column] = values[row_index]
+            rows.append(record)
 
-            rows.append({column: row.get(column, "") for column in required})
+    if min_day is None:
+        return rows
 
-    return rows
+    filtered: list[dict[str, str]] = []
+    for record in rows:
+        day = parse_production_day(record.get("生産日", ""))
+        if day is None or day < min_day:
+            continue
+        filtered.append(record)
+    return filtered
 
 
 def features_csv_cache_key(data_dir: Path | None = None) -> str | None:
     path = find_features_csv(data_dir)
     if path is None:
         return None
-    return f"{path.resolve()}:{path.stat().st_mtime_ns}"
+    raw_key = ""
+    from app.manufacturing.infrastructure.mold_session import resolve_active_raw_csv_path
 
-
+    raw_path = resolve_active_raw_csv_path(data_dir)
+    if raw_path is not None:
+        raw_key = f":{raw_path.resolve()}:{raw_path.stat().st_mtime_ns}"
+    return f"{path.resolve()}:{path.stat().st_mtime_ns}{raw_key}"

@@ -71,10 +71,31 @@ class InsightGenerator(Protocol):
 
 
 class MoldDashboardProvider(Protocol):
+    def has_uploaded_data(
+        self,
+        data_dir: Path | None = None,
+        *,
+        session_id: str | None = None,
+    ) -> bool: ...
+
+    def persist_phase2_upload(
+        self,
+        *,
+        daily_rows: list[dict[str, str]],
+        anomaly_rows: list[dict[str, str]] | None = None,
+        source_file: str,
+    ) -> None: ...
+
     def resolve_plot_start(
         self,
         *,
         daily_rows: list[dict[str, str]] | None = None,
     ) -> date: ...
 
+    def build_empty(self) -> ManufacturingDashboard: ...
+
     def build(self) -> ManufacturingDashboard: ...
+
+
+class MoldUploadProcessor(Protocol):
+    def process_upload(self, *, content: bytes, filename: str) -> None: ...

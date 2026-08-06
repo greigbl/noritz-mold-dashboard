@@ -132,6 +132,9 @@ export type DailyCountChart = {
 };
 
 export type ManufacturingDashboard = {
+  dataStatus?: 'empty' | 'ready';
+  preserveFileOnReload?: boolean;
+  sourceFile?: string | null;
   predictionStatus: PredictionStatus;
   range: ManufacturingRange;
   summary: ManufacturingSummary;

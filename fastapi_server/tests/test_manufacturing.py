@@ -16,6 +16,7 @@ import asyncio
 import csv
 import io
 import json
+import shutil
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -49,6 +50,7 @@ from app.manufacturing.infrastructure.csv_data_source import (
     build_lot_prediction_records,
 )
 from app.manufacturing.infrastructure.insight_service import InsightService
+from app.manufacturing.infrastructure.mold_upload_processor import NoritzMoldUploadProcessor
 from app.manufacturing.infrastructure.prediction_client import (
     PREDICTION_FEATURE_COLUMNS,
     LocalManufacturingPredictionClient,
@@ -586,12 +588,153 @@ async def test_alert_detail_and_refresh_reuse_stored_alert() -> None:
     assert refreshed.insight is not None
 
 
+def test_mold_dashboard_empty_without_upload_manifest(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.manufacturing.infrastructure.mold_data_source import MoldDashboardProvider
+    from app.manufacturing.infrastructure.mold_session import clear_upload_sessions
+
+    clear_upload_sessions()
+    monkeypatch.setenv("MOLD_DASHBOARD_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        manufacturing_api,
+        "_manufacturing_service",
+        ManufacturingDashboardService(
+            prediction_client=LocalManufacturingPredictionClient(),
+            insight_service=InsightService(),
+            mold_dashboard_provider=MoldDashboardProvider(),
+        ),
+    )
+
+    response = client.get("/api/v1/manufacturing/dashboard")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dataStatus"] == "empty"
+    assert data["alerts"] == []
+    assert data["xrCharts"] == {}
+    assert data["predictionStatus"] == "unavailable"
+
+
+def test_mold_dashboard_empty_when_preserve_false_without_session(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.manufacturing.infrastructure.mold_data_source import MoldDashboardProvider
+    from app.manufacturing.infrastructure.mold_session import (
+        clear_upload_sessions,
+        write_upload_manifest,
+    )
+
+    clear_upload_sessions()
+    monkeypatch.setenv("PRESERVE_FILE_ON_RELOAD", "false")
+    monkeypatch.setenv("MOLD_DASHBOARD_DATA_DIR", str(tmp_path))
+    write_upload_manifest(data_dir=tmp_path, source_file="sample.csv", upload_kind="raw")
+    monkeypatch.setattr(
+        manufacturing_api,
+        "_manufacturing_service",
+        ManufacturingDashboardService(
+            prediction_client=LocalManufacturingPredictionClient(),
+            insight_service=InsightService(),
+            mold_dashboard_provider=MoldDashboardProvider(),
+        ),
+    )
+
+    response = client.get("/api/v1/manufacturing/dashboard")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dataStatus"] == "empty"
+    assert data["preserveFileOnReload"] is False
+
+
+def test_mold_dashboard_ready_when_preserve_false_with_session_cookie(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.manufacturing.infrastructure.mold_data_source import MoldDashboardProvider
+    from app.manufacturing.infrastructure.mold_session import (
+        MOLD_SESSION_COOKIE,
+        clear_upload_sessions,
+        register_upload_session,
+        write_upload_manifest,
+    )
+
+    clear_upload_sessions()
+    monkeypatch.setenv("PRESERVE_FILE_ON_RELOAD", "false")
+    monkeypatch.setenv("MOLD_DASHBOARD_DATA_DIR", str(tmp_path))
+    shutil.copy(
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "manufacturing"
+        / "data"
+        / "mold"
+        / "phase0_control_limits.json",
+        tmp_path / "phase0_control_limits.json",
+    )
+    write_upload_manifest(
+        data_dir=tmp_path,
+        source_file="phase2_daily_stats.csv",
+        upload_kind="phase2",
+    )
+    shutil.copy(
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "manufacturing"
+        / "data"
+        / "mold"
+        / "phase2_daily_stats.csv",
+        tmp_path / "phase2_daily_stats.csv",
+    )
+    session_id = "test-session-id"
+    register_upload_session(session_id)
+    monkeypatch.setattr(
+        manufacturing_api,
+        "_manufacturing_service",
+        ManufacturingDashboardService(
+            prediction_client=LocalManufacturingPredictionClient(),
+            anomaly_prediction_client=StaticAnomalyPredictionClient(
+                AnomalyScoreAggregates(
+                    by_day={},
+                    by_day_pattern={},
+                    status="unavailable",
+                    threshold=0.001,
+                )
+            ),
+            insight_service=InsightService(),
+            mold_dashboard_provider=MoldDashboardProvider(),
+        ),
+    )
+
+    client.cookies.set(MOLD_SESSION_COOKIE, session_id)
+    response = client.get("/api/v1/manufacturing/dashboard")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dataStatus"] == "ready"
+    assert data["preserveFileOnReload"] is False
+
+
 def test_upload_manufacturing_dashboard_from_monthly_chunks(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     from app.manufacturing.infrastructure.mold_data_source import MoldDashboardProvider
 
+    mold_dir = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "manufacturing"
+        / "data"
+        / "mold"
+    )
+    shutil.copy(mold_dir / "phase0_control_limits.json", tmp_path / "phase0_control_limits.json")
+    monkeypatch.setenv("MOLD_DASHBOARD_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(
         manufacturing_api,
         "_manufacturing_service",
@@ -637,19 +780,15 @@ def test_upload_manufacturing_dashboard_from_monthly_chunks(
 
     assert response.status_code == 200, response.text
     data = response.json()
+    assert data["dataStatus"] == "ready"
+    assert data["sourceFile"] == daily_path.name
+    assert (tmp_path / "upload_manifest.json").is_file()
     assert data["range"]["endDate"].startswith("2026-04")
     assert "a_agent_flow_pressure" in data["xrCharts"]
     assert data["summary"]["businessRuleAlertCount"] > 0
     assert len(data["alerts"]) > 0
     assert data["availablePatterns"]
-    assert data["dailyCountChart"] is not None
-    assert len(data["dailyCountChart"]["points"]) > 0
-    assert "count" in data["dailyCountChart"]["points"][0]
-    assert data["dailyCountChart"]["anomalyScoreThreshold"] == 0.085
-    assert any(
-        point.get("maxAnomalyScore") is not None
-        for point in data["dailyCountChart"]["points"]
-    )
+    assert data["dailyCountChart"] is None
     assert data["jisRuleDescriptions"]["1"].startswith("領域A超過")
     assert any(
         "violationRuleDetails" in alert.get("evidence", {})
@@ -770,3 +909,103 @@ def test_aggregate_predictions_reads_suffixed_passthrough_columns() -> None:
     assert scores.by_day[date(2026, 4, 16)] == 0.000001
     assert scores.by_day_pattern[(date(2026, 4, 15), 1)] == 0.000002
     assert scores.by_day_pattern[(date(2026, 4, 15), 6)] == 0.000003
+
+
+def test_load_feature_rows_allows_missing_pattern_passthrough(tmp_path: Path) -> None:
+    from app.manufacturing.infrastructure.mold_feature_loader import load_feature_rows
+    from app.manufacturing.infrastructure.mold_session import write_upload_manifest
+
+    raw_path = tmp_path / "sample.csv"
+    raw_path.write_text(
+        "feature_a,生産日,吐出パターン番号\n"
+        "1.0,46113.0,1\n"
+        "2.0,46114.0,6\n",
+        encoding="utf-8-sig",
+    )
+    features_path = tmp_path / "sample_features.csv"
+    features_path.write_text(
+        "feature_a,生産日\n"
+        "1.0,46113.0\n"
+        "2.0,46114.0\n",
+        encoding="utf-8-sig",
+    )
+    write_upload_manifest(data_dir=tmp_path, source_file=raw_path.name, upload_kind="raw")
+
+    rows = load_feature_rows(
+        data_dir=tmp_path,
+        feature_columns=["feature_a"],
+        min_day=date(2026, 4, 1),
+    )
+
+    assert len(rows) == 2
+    assert rows[0]["feature_a"] == "1.0"
+    assert rows[0]["生産日"] == "46113.0"
+    assert rows[0]["吐出パターン番号"] == "1"
+    assert rows[1]["吐出パターン番号"] == "6"
+
+
+def test_parse_production_day_accepts_slash_dates() -> None:
+    from app.manufacturing.infrastructure.mold_data_source import parse_production_day
+
+    assert parse_production_day("2026/4/1") == date(2026, 4, 1)
+    assert parse_production_day("2026-04-01") == date(2026, 4, 1)
+
+
+def test_process_manufacturing_dashboard_from_raw_csv(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.manufacturing.infrastructure.mold_data_source import MoldDashboardProvider
+
+    mold_dir = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "manufacturing"
+        / "data"
+        / "mold"
+    )
+    shutil.copy(mold_dir / "phase0_control_limits.json", tmp_path / "phase0_control_limits.json")
+    monkeypatch.setenv("MOLD_DASHBOARD_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        manufacturing_api,
+        "_manufacturing_service",
+        ManufacturingDashboardService(
+            prediction_client=LocalManufacturingPredictionClient(),
+            anomaly_prediction_client=StaticAnomalyPredictionClient(
+                AnomalyScoreAggregates(
+                    by_day={date(2026, 4, 15): 0.001},
+                    by_day_pattern={(date(2026, 4, 15), 1): 0.001},
+                    status="available",
+                    threshold=0.001,
+                )
+            ),
+            insight_service=InsightService(),
+            mold_dashboard_provider=MoldDashboardProvider(),
+            mold_upload_processor=NoritzMoldUploadProcessor(),
+        ),
+    )
+
+    raw_path = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "manufacturing"
+        / "data"
+        / "mold"
+        / "テストデータ_202604.csv"
+    )
+    response = client.post(
+        "/api/v1/manufacturing/dashboard/process",
+        files={"file": (raw_path.name, raw_path.read_bytes(), "text/csv")},
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["dataStatus"] == "ready"
+    assert data["sourceFile"] == raw_path.name
+    assert (tmp_path / "upload_manifest.json").is_file()
+    assert data["range"]["endDate"].startswith("2026-04")
+    assert data["dailyCountChart"] is not None
+    assert len(data["dailyCountChart"]["points"]) > 0
+    assert "a_agent_flow_pressure" in data["xrCharts"]
+    assert data["summary"]["businessRuleAlertCount"] > 0

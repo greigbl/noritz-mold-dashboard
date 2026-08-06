@@ -1,5 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
-import { getManufacturingAlert, getManufacturingDashboard } from './api-requests';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  getManufacturingAlert,
+  getManufacturingDashboard,
+  processManufacturingDashboard,
+} from './api-requests';
 import { manufacturingKeys } from './keys';
 
 const staleTime = 60 * 1000;
@@ -12,6 +16,16 @@ export function useManufacturingDashboard() {
     refetchInterval: query =>
       query.state.data?.data.predictionStatus === 'running' ? 3000 : false,
     staleTime,
+  });
+}
+
+export function useProcessManufacturingDashboard() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => processManufacturingDashboard({ file }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: manufacturingKeys.dashboard });
+    },
   });
 }
 

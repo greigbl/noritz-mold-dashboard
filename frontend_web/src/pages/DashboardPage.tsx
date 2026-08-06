@@ -10,8 +10,9 @@ import {
   RefreshCw,
   Settings,
   ShieldAlert,
+  Upload,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   Bar,
@@ -25,7 +26,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { useManufacturingAlert, useManufacturingDashboard } from '@/api/manufacturing/hooks';
+import { useManufacturingAlert, useManufacturingDashboard, useProcessManufacturingDashboard } from '@/api/manufacturing/hooks';
 import type {
   DailyCountChart,
   ManufacturingAlert,
@@ -121,6 +122,45 @@ const xrMetricOptions: ManufacturingMetric[] = [
   'b_tank1_pressure',
   'b_tank2_pressure',
 ];
+
+const UPLOAD_REVEAL_STAGGER_MS = 500;
+
+type UploadRevealSections = {
+  barChart: boolean;
+  lineCharts: boolean;
+  alertList: boolean;
+};
+
+const ALL_UPLOAD_SECTIONS_REVEALED: UploadRevealSections = {
+  barChart: true,
+  lineCharts: true,
+  alertList: true,
+};
+
+function UploadRevealSection({
+  visible,
+  children,
+  className,
+}: {
+  visible: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <div
+      className={cn(
+        'animate-in fade-in-0 slide-in-from-bottom-4 duration-500 fill-mode-both',
+        className
+      )}
+    >
+      {children}
+    </div>
+  );
+}
 
 function formatDate(value: string) {
   return dateFormatter.format(new Date(`${value}T00:00:00`));
@@ -662,12 +702,45 @@ function AlertDetail({ alertId }: { alertId: string }) {
 
 export function DashboardPage() {
   const { alertId } = useParams();
-  const { data, isLoading, isError } = useManufacturingDashboard();
+  const { data, isLoading, isError, refetch } = useManufacturingDashboard();
+  const processUpload = useProcessManufacturingDashboard();
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const [selectedPattern, setSelectedPattern] = useState<number>(1);
   const [anomalyThreshold, setAnomalyThreshold] = useState(readStoredAnomalyThreshold);
   const [thresholdDraft, setThresholdDraft] = useState(() => String(readStoredAnomalyThreshold()));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [thresholdError, setThresholdError] = useState<string | null>(null);
+  const [revealedSections, setRevealedSections] = useState<UploadRevealSections>(
+    ALL_UPLOAD_SECTIONS_REVEALED
+  );
+  const [uploadRevealTrigger, setUploadRevealTrigger] = useState(0);
+
+  const startUploadReveal = () => {
+    setUploadRevealTrigger(trigger => trigger + 1);
+  };
+
+  useEffect(() => {
+    if (uploadRevealTrigger === 0) {
+      return;
+    }
+
+    const timers = [
+      window.setTimeout(() => {
+        setRevealedSections(previous => ({ ...previous, barChart: true }));
+      }, 0),
+      window.setTimeout(() => {
+        setRevealedSections(previous => ({ ...previous, lineCharts: true }));
+      }, UPLOAD_REVEAL_STAGGER_MS),
+      window.setTimeout(() => {
+        setRevealedSections(previous => ({ ...previous, alertList: true }));
+      }, UPLOAD_REVEAL_STAGGER_MS * 2),
+    ];
+
+    return () => {
+      timers.forEach(timer => window.clearTimeout(timer));
+    };
+  }, [uploadRevealTrigger]);
 
   const availablePatterns = useMemo(() => {
     if (!data) {
@@ -724,7 +797,9 @@ export function DashboardPage() {
     return pattern === undefined || pattern === selectedPattern;
   }).length;
 
-  const hasAnyChart = xrMetricOptions.some(metric =>
+  const isEmptyDashboard = dashboard.dataStatus === 'empty';
+
+  const hasAnyChart = !isEmptyDashboard && xrMetricOptions.some(metric =>
     Boolean(
       dashboard.xrCharts?.[metric]?.[String(selectedPattern)] ??
         dashboard.rbarCharts?.[metric]
@@ -749,46 +824,123 @@ export function DashboardPage() {
     setSettingsOpen(false);
   };
 
+  const handleUploadClick = () => {
+    setUploadError(null);
+    uploadInputRef.current?.click();
+  };
+
+  const handleUploadFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) {
+      return;
+    }
+    setUploadError(null);
+    setRevealedSections({
+      barChart: false,
+      lineCharts: false,
+      alertList: false,
+    });
+    try {
+      await processUpload.mutateAsync(file);
+      await refetch();
+      startUploadReveal();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'データのアップロードに失敗しました。';
+      setUploadError(message);
+    }
+  };
+
   return (
     <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
       <div className="mx-auto flex h-full w-full max-w-7xl min-h-0 flex-col gap-3 px-4 py-4 sm:px-6 lg:px-8">
         <header className="flex shrink-0 flex-col gap-3 border-b pb-3 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <Badge className="rounded-sm">
-                表示 {formatDate(dashboard.range.startDate)} -{' '}
-                {formatDate(dashboard.range.endDate)}
-              </Badge>
-              <Badge type="outline" className="rounded-sm">
-                アラート判定 直近7日
-              </Badge>
-              {dashboard.summary.criticalAlertCount > 0 ? (
-                <Badge variant="destructive" className="rounded-sm">
-                  critical {dashboard.summary.criticalAlertCount}
+            {!isEmptyDashboard ? (
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <Badge className="rounded-sm">
+                  表示 {formatDate(dashboard.range.startDate)} -{' '}
+                  {formatDate(dashboard.range.endDate)}
                 </Badge>
-              ) : null}
-            </div>
+                <Badge type="outline" className="rounded-sm">
+                  アラート判定 直近7日
+                </Badge>
+                {dashboard.summary.criticalAlertCount > 0 ? (
+                  <Badge variant="destructive" className="rounded-sm">
+                    critical {dashboard.summary.criticalAlertCount}
+                  </Badge>
+                ) : null}
+              </div>
+            ) : null}
             <h1 className="heading-02">モールド装置 X-R管理図</h1>
           </div>
-          <div className="flex items-center gap-2">
-            <Button asChild variant="secondary" size="sm" className="w-fit shrink-0">
-              <Link to={PATHS.CHAT_EMPTY}>
-                <ArrowLeft className="size-4" />
-                Chat
-              </Link>
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-label="設定"
-              className="shrink-0"
-              onClick={openSettings}
-            >
-              <Settings className="size-4" />
-            </Button>
+          <div className="flex w-full flex-col gap-1 sm:min-w-[11rem] md:w-auto">
+            <div className="flex items-center gap-2">
+              <input
+                ref={uploadInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={handleUploadFile}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="min-w-0 flex-1 justify-center"
+                disabled={processUpload.isPending}
+                onClick={handleUploadClick}
+              >
+                {processUpload.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Upload className="size-4" />
+                )}
+                データ取込
+              </Button>
+              {!isEmptyDashboard ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="設定"
+                  className="shrink-0"
+                  onClick={openSettings}
+                >
+                  <Settings className="size-4" />
+                </Button>
+              ) : null}
+            </div>
+            {dashboard.sourceFile ? (
+              <p
+                className="caption-01 truncate text-muted-foreground"
+                title={dashboard.sourceFile}
+              >
+                {dashboard.sourceFile}
+              </p>
+            ) : null}
           </div>
         </header>
+
+        {processUpload.isPending ? (
+          <Alert className="rounded-md">
+            <Loader2 className="size-4 animate-spin" />
+            <AlertTitle>データ処理中</AlertTitle>
+            <AlertDescription>
+              Phase 1（欠損チェック）→ Phase 2（X-R判定）→ Phase 3（特徴量）を実行しています。
+              完了後、Phase 4（異常スコア）をバックグラウンドで取得します。
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {uploadError ? (
+          <Alert variant="destructive" className="rounded-md">
+            <AlertTriangle />
+            <AlertTitle>アップロード失敗</AlertTitle>
+            <AlertDescription>{uploadError}</AlertDescription>
+          </Alert>
+        ) : null}
 
         <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
           <DialogContent className="sm:max-w-md">
@@ -834,16 +986,49 @@ export function DashboardPage() {
           </DialogContent>
         </Dialog>
 
+        {isEmptyDashboard ? (
+          <section
+            className="flex min-h-0 flex-1 items-center justify-center py-8"
+            data-testid="dashboard-empty-state"
+          >
+            <Card className="w-full max-w-lg rounded-md">
+              <CardContent className="flex flex-col items-center gap-4 px-6 py-10 text-center">
+                <Upload className="size-10 text-muted-foreground" />
+                <div className="space-y-2">
+                  <h2 className="heading-04">テストデータをアップロードしてください</h2>
+                  <p className="body-secondary text-muted-foreground">
+                    月次のモールド装置テストデータ（CSV）を取り込むと、X-R管理図・アラート・異常スコアが表示されます。
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  disabled={processUpload.isPending}
+                  onClick={handleUploadClick}
+                >
+                  {processUpload.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Upload className="size-4" />
+                  )}
+                  データ取込
+                </Button>
+              </CardContent>
+            </Card>
+          </section>
+        ) : (
         <section className="grid min-h-0 flex-1 gap-3 overflow-hidden lg:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.85fr)]">
           <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
-            <div className="shrink-0">
+            <UploadRevealSection visible={revealedSections.barChart} className="shrink-0">
               <DailyCountBarChart
                 chart={dashboard.dailyCountChart}
                 anomalyThreshold={anomalyThreshold}
                 predictionStatus={dashboard.predictionStatus}
               />
-            </div>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-2">
+            </UploadRevealSection>
+            <UploadRevealSection
+              visible={revealedSections.lineCharts}
+              className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-2"
+            >
               {!hasAnyChart ? (
                 <Alert className="rounded-md">
                   <AlertCircle />
@@ -868,7 +1053,7 @@ export function DashboardPage() {
                   );
                 })
               )}
-            </div>
+            </UploadRevealSection>
           </div>
 
           <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
@@ -909,20 +1094,26 @@ export function DashboardPage() {
                 <AlertDetail alertId={alertId} />
               </div>
             ) : (
-              <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md py-3">
-                <CardHeader className="shrink-0 pb-2">
-                  <CardTitle className="text-sm font-medium">業務アラート一覧</CardTitle>
-                </CardHeader>
-                <CardContent className="min-h-0 flex-1 overflow-y-auto pb-4">
-                  <AlertList
-                    alerts={dashboard.alerts ?? []}
-                    selectedPattern={selectedPattern}
-                  />
-                </CardContent>
-              </Card>
+              <UploadRevealSection
+                visible={revealedSections.alertList}
+                className="flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
+                <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md py-3">
+                  <CardHeader className="shrink-0 pb-2">
+                    <CardTitle className="text-sm font-medium">業務アラート一覧</CardTitle>
+                  </CardHeader>
+                  <CardContent className="min-h-0 flex-1 overflow-y-auto pb-4">
+                    <AlertList
+                      alerts={dashboard.alerts ?? []}
+                      selectedPattern={selectedPattern}
+                    />
+                  </CardContent>
+                </Card>
+              </UploadRevealSection>
             )}
           </div>
         </section>
+        )}
       </div>
     </main>
   );

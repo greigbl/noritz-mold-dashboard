@@ -252,3 +252,4 @@ Taskfile.gen.yaml
 
 # Large local mold prediction artifacts (scored via DataRobot deployment at runtime)
 fastapi_server/app/manufacturing/data/mold/*_features_予測結果.csv
+fastapi_server/app/manufacturing/data/mold/upload_manifest.json

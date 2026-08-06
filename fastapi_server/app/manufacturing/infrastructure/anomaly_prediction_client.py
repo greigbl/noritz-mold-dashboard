@@ -168,6 +168,12 @@ class DataRobotAnomalyPredictionClient:
     _features_cache_key: str | None = None
     _cached_result: AnomalyScoreAggregates | None = None
 
+    def clear_cache(self) -> None:
+        """Drop cached scores so the next request re-scores fresh feature rows."""
+        self._feature_columns = None
+        self._features_cache_key = None
+        self._cached_result = None
+
     async def predict_scores(
         self,
         *,
@@ -183,8 +189,9 @@ class DataRobotAnomalyPredictionClient:
             min_day=min_day,
             data_dir=data_dir,
         )
-        self._features_cache_key = cache_key
-        self._cached_result = result
+        if result.by_day:
+            self._features_cache_key = cache_key
+            self._cached_result = result
         return result
 
     def _build_cache_key(
@@ -225,9 +232,12 @@ class DataRobotAnomalyPredictionClient:
             dr.Client(token=self.api_token, endpoint=self.endpoint)
             deployment = Deployment.get(self.deployment_id)
             frame = pd.DataFrame(rows)
+            passthrough_columns = [
+                column for column in PASSTHROUGH_COLUMNS if column in frame.columns
+            ]
             result = deployment.predict_batch(
                 source=frame,
-                passthrough_columns=list(PASSTHROUGH_COLUMNS),
+                passthrough_columns=passthrough_columns,
             )
         except Exception as exc:  # noqa: BLE001 - surface deployment failures to dashboard status
             logger.warning("DataRobot anomaly scoring failed: %s", exc)

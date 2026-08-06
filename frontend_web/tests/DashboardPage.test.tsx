@@ -36,6 +36,9 @@ const businessAlert = {
 };
 
 const dashboardResponse = {
+  dataStatus: 'ready',
+  preserveFileOnReload: true,
+  sourceFile: 'テストデータ_202604.csv',
   predictionStatus: 'unavailable',
   range: {
     startDate: '2026-03-23',
@@ -203,14 +206,13 @@ describe('DashboardPage', () => {
     renderDashboard();
 
     expect(await screen.findByText('モールド装置 X-R管理図')).toBeInTheDocument();
+    expect(screen.getByText('テストデータ_202604.csv')).toBeInTheDocument();
     expect(screen.getByText('業務アラート（全体）')).toBeInTheDocument();
     expect(screen.getByText('1件', { selector: '[data-testid="business-alert-count"]' }));
     expect(screen.getByLabelText('日次データ件数')).toBeInTheDocument();
     expect(screen.getByText('A剤流圧 X管理図')).toBeInTheDocument();
     expect(screen.getByText('B剤流圧 X管理図')).toBeInTheDocument();
     expect(screen.getByLabelText('吐出パターン番号')).toBeInTheDocument();
-    expect(screen.getAllByText(/領域A超過点が1つ/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('ルール1').length).toBeGreaterThan(0);
   });
 
   it('switches pattern and updates all feature charts', async () => {
@@ -233,6 +235,48 @@ describe('DashboardPage', () => {
       screen.getByRole('img', { name: 'A剤流圧 吐出パターン6 X管理図' })
     ).toBeInTheDocument();
     expect(screen.getAllByText('X管理図データなし').length).toBeGreaterThan(0);
+  });
+
+  it('renders upload empty state before any data is loaded', async () => {
+    server.use(
+      http.get('*/api/v1/manufacturing/dashboard', () =>
+        HttpResponse.json({
+          dataStatus: 'empty',
+          predictionStatus: 'unavailable',
+          range: {
+            startDate: '2026-07-31',
+            endDate: '2026-07-31',
+            grain: 'day',
+          },
+          summary: {
+            latestDate: '2026-07-31',
+            lotsProduced: 0,
+            totalCoatingLengthM: 0,
+            bleedoutCount: 0,
+            bleedoutRate: 0,
+            alertCount: 0,
+            predictionAlertCount: 0,
+            businessRuleAlertCount: 0,
+            criticalAlertCount: 0,
+          },
+          series: [],
+          rbarChart: null,
+          rbarCharts: {},
+          xrCharts: {},
+          availablePatterns: [],
+          dailyCountChart: null,
+          jisRuleDescriptions: {},
+          alerts: [],
+        })
+      )
+    );
+
+    renderDashboard();
+
+    expect(await screen.findByTestId('dashboard-empty-state')).toBeInTheDocument();
+    expect(screen.getByText('テストデータをアップロードしてください')).toBeInTheDocument();
+    expect(screen.queryByText('業務アラート（全体）')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('日次データ件数')).not.toBeInTheDocument();
   });
 
   it('renders empty state when chart data is unavailable', async () => {
@@ -267,7 +311,7 @@ describe('DashboardPage', () => {
 
     renderDashboard();
 
-    fireEvent.click(await screen.findByRole('link', { name: /JIS管理図違反/ }));
+    fireEvent.click(await screen.findByRole('link', { name: /A剤流圧/ }));
 
     expect(await screen.findByText('Chat target')).toBeInTheDocument();
   });

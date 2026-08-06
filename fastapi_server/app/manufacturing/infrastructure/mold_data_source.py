@@ -45,6 +45,8 @@ from app.manufacturing.domain.models import (
     ManufacturingAlert,
     ManufacturingDailyRecord,
     ManufacturingDashboard,
+    ManufacturingRange,
+    ManufacturingSummary,
     MetricName,
     RbarChart,
     RbarChartPoint,
@@ -116,12 +118,19 @@ def parse_violation_rules(raw: str) -> list[int]:
 
 
 def parse_csv_rows(content: str | bytes) -> list[dict[str, str]]:
-    """Parse CSV text/bytes into row dicts (utf-8-sig aware)."""
-    text = (
-        content.decode("utf-8-sig")
-        if isinstance(content, (bytes, bytearray))
-        else content.lstrip("\ufeff")
-    )
+    """Parse CSV text/bytes into row dicts (utf-8-sig / cp932 aware)."""
+    if isinstance(content, (bytes, bytearray)):
+        text: str | None = None
+        for encoding in ("utf-8-sig", "utf-8", "cp932", "shift_jis"):
+            try:
+                text = content.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        if text is None:
+            raise ValueError("Could not decode uploaded CSV with a supported encoding.")
+    else:
+        text = content.lstrip("\ufeff")
     return [dict(row) for row in csv.DictReader(io.StringIO(text))]
 
 
@@ -173,7 +182,7 @@ def load_daily_counts(
 
 
 def parse_production_day(raw: str) -> date | None:
-    """Parse 生産日 as ISO date or Excel serial day number."""
+    """Parse 生産日 as ISO date, slash date, or Excel serial day number."""
     value = (raw or "").strip()
     if not value:
         return None
@@ -184,6 +193,14 @@ def parse_production_day(raw: str) -> date | None:
             return date.fromisoformat(value[:10])
         except ValueError:
             return None
+    if "/" in value:
+        parts = value.split("/")
+        if len(parts) == 3:
+            try:
+                year, month, day = (int(parts[0]), int(parts[1]), int(parts[2]))
+                return date(year, month, day)
+            except ValueError:
+                return None
     try:
         serial = float(value)
     except ValueError:
@@ -491,6 +508,87 @@ def default_chart_for_metric(
 class MoldDashboardProvider:
     """Builds a full ManufacturingDashboard from Phase 0/2 pipeline outputs."""
 
+    def has_uploaded_data(
+        self,
+        data_dir: Path | None = None,
+        *,
+        session_id: str | None = None,
+    ) -> bool:
+        from app.manufacturing.infrastructure.mold_session import (
+            has_uploaded_dashboard_data,
+        )
+
+        return has_uploaded_dashboard_data(data_dir, session_id=session_id)
+
+    def get_active_source_file(self, data_dir: Path | None = None) -> str | None:
+        from app.manufacturing.infrastructure.mold_session import (
+            get_active_source_file,
+        )
+
+        return get_active_source_file(data_dir)
+
+    def persist_phase2_upload(
+        self,
+        *,
+        daily_rows: list[dict[str, str]],
+        anomaly_rows: list[dict[str, str]] | None = None,
+        source_file: str,
+        data_dir: Path | None = None,
+    ) -> None:
+        from app.manufacturing.infrastructure.mold_session import (
+            persist_phase2_outputs,
+            write_upload_manifest,
+        )
+
+        persist_phase2_outputs(
+            data_dir=data_dir,
+            daily_rows=daily_rows,
+            anomaly_rows=anomaly_rows,
+        )
+        write_upload_manifest(
+            data_dir=data_dir,
+            source_file=source_file,
+            upload_kind="phase2",
+            metadata={"daily_rows": len(daily_rows)},
+        )
+
+    def build_empty(self) -> ManufacturingDashboard:
+        from app.manufacturing.infrastructure.mold_session import is_preserve_file_on_reload
+
+        today = date.today()
+        return ManufacturingDashboard(
+            data_status="empty",
+            preserve_file_on_reload=is_preserve_file_on_reload(),
+            prediction_status="unavailable",
+            range=ManufacturingRange(
+                start_date=today,
+                end_date=today,
+                grain="day",
+            ),
+            summary=ManufacturingSummary(
+                latest_date=today,
+                lots_produced=0,
+                total_coating_length_m=0.0,
+                bleedout_count=0,
+                bleedout_rate=0.0,
+                alert_count=0,
+                prediction_alert_count=0,
+                business_rule_alert_count=0,
+                critical_alert_count=0,
+            ),
+            series=[],
+            rbar_chart=None,
+            rbar_charts={},
+            xr_charts={},
+            available_patterns=[],
+            daily_count_chart=None,
+            jis_rule_descriptions={
+                str(rule): description
+                for rule, description in JIS_RULES_DESCRIPTION.items()
+            },
+            alerts=[],
+        )
+
     def resolve_plot_start(
         self,
         *,
@@ -514,12 +612,6 @@ class MoldDashboardProvider:
         anomaly_rows: list[dict[str, str]] | None = None,
         anomaly_scores: AnomalyScoreAggregates | None = None,
     ) -> ManufacturingDashboard:
-        from app.manufacturing.domain.models import (
-            ManufacturingDashboard,
-            ManufacturingRange,
-            ManufacturingSummary,
-        )
-
         scores = anomaly_scores or empty_anomaly_scores()
 
         xr_charts, alerts, patterns, plot_start, latest = build_xr_charts_and_alerts(
@@ -539,8 +631,12 @@ class MoldDashboardProvider:
         business_rule_alert_count = sum(
             1 for alert in alerts if alert.alert_type == "business_rule"
         )
+        from app.manufacturing.infrastructure.mold_session import is_preserve_file_on_reload
 
         return ManufacturingDashboard(
+            data_status="ready",
+            preserve_file_on_reload=is_preserve_file_on_reload(),
+            source_file=self.get_active_source_file(),
             prediction_status=scores.status,
             range=ManufacturingRange(
                 start_date=plot_start,

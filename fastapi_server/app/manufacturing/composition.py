@@ -27,6 +27,7 @@ from app.manufacturing.infrastructure.anomaly_prediction_client import (
     create_anomaly_prediction_client_from_env,
 )
 from app.manufacturing.infrastructure.mold_data_source import MoldDashboardProvider
+from app.manufacturing.infrastructure.mold_upload_processor import NoritzMoldUploadProcessor
 
 
 def create_manufacturing_dashboard_service() -> ManufacturingDashboardService:
@@ -40,4 +41,5 @@ def create_manufacturing_dashboard_service() -> ManufacturingDashboardService:
         insight_service=InsightService(),
         detectors=build_default_detectors(),
         mold_dashboard_provider=MoldDashboardProvider() if use_mold_pipeline else None,
+        mold_upload_processor=NoritzMoldUploadProcessor() if use_mold_pipeline else None,
     )

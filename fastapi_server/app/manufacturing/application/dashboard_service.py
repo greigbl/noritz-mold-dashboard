@@ -24,6 +24,7 @@ from app.manufacturing.application.ports import (
     ManufacturingDataSet,
     ManufacturingDataSource,
     MoldDashboardProvider,
+    MoldUploadProcessor,
     PredictionClient,
 )
 from app.manufacturing.domain.anomaly_scores import (
@@ -55,6 +56,7 @@ class ManufacturingDashboardService:
         data_source: ManufacturingDataSource | None = None,
         detectors: Sequence[ManufacturingDetector] | None = None,
         mold_dashboard_provider: MoldDashboardProvider | None = None,
+        mold_upload_processor: MoldUploadProcessor | None = None,
         anomaly_prediction_client: AnomalyPredictionClient | None = None,
     ) -> None:
         self.prediction_client = prediction_client
@@ -65,6 +67,7 @@ class ManufacturingDashboardService:
             list(detectors) if detectors is not None else build_default_detectors()
         )
         self.mold_dashboard_provider = mold_dashboard_provider
+        self.mold_upload_processor = mold_upload_processor
         self._alerts_by_id: dict[str, ManufacturingAlert] = {}
         self._last_dashboard: ManufacturingDashboard | None = None
         self._prediction_task: asyncio.Task[list[PredictionResult]] | None = None
@@ -76,12 +79,23 @@ class ManufacturingDashboardService:
         self._anomaly_job_key: str | None = None
         self._anomaly_status: PredictionStatus | None = None
 
+    def invalidate_anomaly_cache(self) -> None:
+        self._anomaly_task = None
+        self._anomaly_results = None
+        self._anomaly_job_key = None
+        self._anomaly_status = None
+        client = self.anomaly_prediction_client
+        if client is not None and hasattr(client, "clear_cache"):
+            client.clear_cache()
+
     async def build_dashboard(
         self,
         series: list[ManufacturingDailyRecord] | None = None,
+        *,
+        upload_session_id: str | None = None,
     ) -> ManufacturingDashboard:
         if self.mold_dashboard_provider is not None and series is None:
-            return await self.build_mold_dashboard()
+            return await self.build_mold_dashboard(upload_session_id=upload_session_id)
 
         if series is None:
             if self.data_source is None:
@@ -160,9 +174,21 @@ class ManufacturingDashboardService:
         self._alerts_by_id = {alert.id: alert for alert in dashboard.alerts}
         return dashboard
 
-    async def build_mold_dashboard(self) -> ManufacturingDashboard:
+    async def build_mold_dashboard(
+        self,
+        *,
+        upload_session_id: str | None = None,
+    ) -> ManufacturingDashboard:
         if self.mold_dashboard_provider is None:
             raise ValueError("Mold dashboard provider is not configured.")
+
+        if not self.mold_dashboard_provider.has_uploaded_data(
+            session_id=upload_session_id
+        ):
+            dashboard = self.mold_dashboard_provider.build_empty()
+            self._last_dashboard = dashboard
+            self._alerts_by_id = {}
+            return dashboard
 
         plot_start = self.mold_dashboard_provider.resolve_plot_start()
         anomaly_scores = await self.resolve_anomaly_scores(plot_start)
@@ -174,30 +200,46 @@ class ManufacturingDashboardService:
         self._alerts_by_id = {alert.id: alert for alert in dashboard.alerts}
         return dashboard
 
+    async def build_mold_dashboard_from_raw_upload(
+        self,
+        *,
+        content: bytes,
+        filename: str,
+        upload_session_id: str | None = None,
+    ) -> ManufacturingDashboard:
+        if self.mold_dashboard_provider is None:
+            raise ValueError("Mold dashboard provider is not configured.")
+        if self.mold_upload_processor is None:
+            raise ValueError("Mold upload processor is not configured.")
+
+        await asyncio.to_thread(
+            self.mold_upload_processor.process_upload,
+            content=content,
+            filename=filename,
+        )
+        self.invalidate_anomaly_cache()
+        return await self.build_mold_dashboard(upload_session_id=upload_session_id)
+
     async def build_mold_dashboard_from_upload(
         self,
         *,
         daily_rows: list[dict[str, str]],
         anomaly_rows: list[dict[str, str]] | None = None,
+        source_file: str,
+        upload_session_id: str | None = None,
     ) -> ManufacturingDashboard:
         if self.mold_dashboard_provider is None:
             raise ValueError("Mold dashboard provider is not configured.")
         if not daily_rows:
             raise ValueError("daily_stats CSV must contain at least one data row.")
 
-        dashboard = self.mold_dashboard_provider.build(
+        self.mold_dashboard_provider.persist_phase2_upload(
             daily_rows=daily_rows,
-            anomaly_rows=anomaly_rows if anomaly_rows is not None else [],
-            anomaly_scores=await self.resolve_anomaly_scores(
-                self.mold_dashboard_provider.resolve_plot_start(daily_rows=daily_rows)
-            ),
+            anomaly_rows=anomaly_rows,
+            source_file=source_file,
         )
-        if dashboard.alerts:
-            await self.insight_service.prepare_insights(dashboard)
-
-        self._last_dashboard = dashboard
-        self._alerts_by_id = {alert.id: alert for alert in dashboard.alerts}
-        return dashboard
+        self.invalidate_anomaly_cache()
+        return await self.build_mold_dashboard(upload_session_id=upload_session_id)
 
     async def resolve_predictions(
         self,
@@ -270,12 +312,35 @@ class ManufacturingDashboardService:
                 )
 
             try:
-                self._anomaly_results = self._anomaly_task.result()
-                self._anomaly_status = self._anomaly_results.status
+                results = self._anomaly_task.result()
+                self._anomaly_status = results.status
+                if results.by_day:
+                    self._anomaly_results = results
+                else:
+                    self._anomaly_results = None
+                    self._anomaly_task = None
+                    self._anomaly_job_key = None
             except Exception:
-                self._anomaly_results = empty_anomaly_scores()
+                self._anomaly_results = None
+                self._anomaly_task = None
+                self._anomaly_job_key = None
                 self._anomaly_status = "error"
-            return self._anomaly_results
+                pending = empty_anomaly_scores()
+                return AnomalyScoreAggregates(
+                    by_day={},
+                    by_day_pattern={},
+                    status="error",
+                    threshold=pending.threshold,
+                )
+            if self._anomaly_results is not None:
+                return self._anomaly_results
+            pending = empty_anomaly_scores()
+            return AnomalyScoreAggregates(
+                by_day={},
+                by_day_pattern={},
+                status=self._anomaly_status or "error",
+                threshold=pending.threshold,
+            )
 
         self._anomaly_status = "running"
         self._anomaly_task = asyncio.create_task(

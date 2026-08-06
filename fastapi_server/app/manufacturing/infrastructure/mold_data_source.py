@@ -20,7 +20,6 @@ import ast
 import csv
 import io
 import json
-import os
 from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
@@ -52,10 +51,11 @@ from app.manufacturing.domain.models import (
     RbarChartPoint,
 )
 
-MOLD_DATA_DIR = Path(__file__).parents[1] / "data" / "mold"
-MOLD_DATA_DIR_ENV = "MOLD_DASHBOARD_DATA_DIR"
-
-PLOT_DAYS = CONFIG_PLOT_DAYS
+from app.manufacturing.infrastructure.mold_paths import (
+    PHASE0_CONTROL_LIMITS_FILE,
+    get_mold_data_dir,
+    get_phase0_control_limits_path,
+)
 DETECTION_DAYS = CONFIG_DETECTION_DAYS
 BUSINESS_RULE_ID = "jis.xr.violation_rules"
 RULE_VERSION = "1.0.0"
@@ -95,9 +95,7 @@ METRIC_LABELS: dict[MetricName, str] = {
 MOLD_METRICS: tuple[MetricName, ...] = tuple(TARGET_COLUMN_TO_METRIC.values())
 
 
-def get_mold_data_dir() -> Path:
-    configured = os.getenv(MOLD_DATA_DIR_ENV)
-    return Path(configured) if configured else MOLD_DATA_DIR
+PLOT_DAYS = CONFIG_PLOT_DAYS
 
 
 def parse_iso_date(value: str) -> date:
@@ -141,7 +139,11 @@ def load_daily_stats(data_dir: Path | None = None) -> list[dict[str, str]]:
 
 
 def load_control_limits(data_dir: Path | None = None) -> dict:
-    path = (data_dir or get_mold_data_dir()) / "phase0_control_limits.json"
+    path = (
+        data_dir / PHASE0_CONTROL_LIMITS_FILE
+        if data_dir is not None
+        else get_phase0_control_limits_path()
+    )
     with path.open(encoding="utf-8") as handle:
         return json.load(handle)
 
@@ -296,7 +298,7 @@ def build_xr_charts_and_alerts(
         daily_rows = load_daily_stats(data_dir)
     if anomaly_rows is None:
         anomaly_rows = load_anomalies(data_dir)
-    control_limits_payload = load_control_limits(data_dir)
+    control_limits_payload = load_control_limits()
     anomaly_lookup = build_anomaly_lookup(anomaly_rows)
     scores = anomaly_scores or empty_anomaly_scores()
     scores_by_day = scores.by_day

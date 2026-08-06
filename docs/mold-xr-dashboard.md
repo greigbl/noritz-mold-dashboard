@@ -2,23 +2,31 @@
 
 This branch adapts the Hata manufacturing demo into a **Noritz mold-machine X-R control chart dashboard**.
 
-## Data source
+## Data layout
 
-Pipeline outputs from `noritz_dashboard` are loaded from:
+Static Phase 0 control limits and runtime pipeline outputs are split:
 
 ```
-fastapi_server/app/manufacturing/data/mold/
-  phase0_control_limits.json
-  phase2_daily_stats.csv          # April 2026 test window (from monthly/)
-  phase2_anomalies.csv
-  テストデータ_202604.csv          # raw mold records (CP932)
-  テストデータ_202604_features.csv # phase-3 features for live scoring
-  phase3_daily_data_counts.json
+fastapi_server/app/manufacturing/data/
+  phase0_data/
+    phase0_control_limits.json     # shipped in git (offline training)
+  generated/                       # gitignored — uploads + pipeline outputs
+    upload_manifest.json
+    {upload_stem}.csv
+    phase1_missing_ids.json
+    phase2_daily_stats.csv
+    phase2_anomalies.csv
+    phase3_daily_data_counts.json
+    {upload_stem}_features.csv
+    .pipeline_work/
 ```
 
-Override with `MOLD_DASHBOARD_DATA_DIR`. Point scoring at a specific features file with
-`MOLD_FEATURES_CSV` (otherwise `テストデータ_*_features.csv` is preferred over other
-`*_features.csv` files).
+Override directories with `MOLD_PHASE0_DATA_DIR` and `MOLD_GENERATED_DATA_DIR`
+(`MOLD_DASHBOARD_DATA_DIR` remains a legacy alias for the generated directory).
+Point scoring at a specific features file with `MOLD_FEATURES_CSV` (otherwise
+`テストデータ_*_features.csv` is preferred over other `*_features.csv` files).
+
+Test fixtures live under `fastapi_server/tests/fixtures/manufacturing/`.
 
 Legacy local prediction outputs (`*_features_予測結果.csv`) are no longer required when
 `MANUFACTURING_PREDICTION_DEPLOYMENT_ID` is configured. They remain supported as a

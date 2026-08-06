@@ -23,6 +23,31 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+MANUFACTURING_FIXTURES_DIR = (
+    Path(__file__).resolve().parent / "fixtures" / "manufacturing"
+)
+
+
+def _configure_mold_generated_dir(
+    monkeypatch: pytest.MonkeyPatch, generated_dir: Path
+) -> Path:
+    monkeypatch.setenv("MOLD_GENERATED_DATA_DIR", str(generated_dir))
+    monkeypatch.setenv("MOLD_DASHBOARD_DATA_DIR", str(generated_dir))
+    return generated_dir
+
+
+def _configure_mold_phase0_dir(
+    monkeypatch: pytest.MonkeyPatch, phase0_dir: Path
+) -> Path:
+    phase0_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy(
+        MANUFACTURING_FIXTURES_DIR / "phase0_control_limits.json",
+        phase0_dir / "phase0_control_limits.json",
+    )
+    monkeypatch.setenv("MOLD_PHASE0_DATA_DIR", str(phase0_dir))
+    return phase0_dir
+
+
 from app.api.v1 import manufacturing as manufacturing_api
 from app.manufacturing.application.dashboard_service import (
     ManufacturingDashboardService,
@@ -597,7 +622,7 @@ def test_mold_dashboard_empty_without_upload_manifest(
     from app.manufacturing.infrastructure.mold_session import clear_upload_sessions
 
     clear_upload_sessions()
-    monkeypatch.setenv("MOLD_DASHBOARD_DATA_DIR", str(tmp_path))
+    _configure_mold_generated_dir(monkeypatch, tmp_path)
     monkeypatch.setattr(
         manufacturing_api,
         "_manufacturing_service",
@@ -631,7 +656,7 @@ def test_mold_dashboard_empty_when_preserve_false_without_session(
 
     clear_upload_sessions()
     monkeypatch.setenv("PRESERVE_FILE_ON_RELOAD", "false")
-    monkeypatch.setenv("MOLD_DASHBOARD_DATA_DIR", str(tmp_path))
+    _configure_mold_generated_dir(monkeypatch, tmp_path)
     write_upload_manifest(data_dir=tmp_path, source_file="sample.csv", upload_kind="raw")
     monkeypatch.setattr(
         manufacturing_api,
@@ -666,29 +691,16 @@ def test_mold_dashboard_ready_when_preserve_false_with_session_cookie(
 
     clear_upload_sessions()
     monkeypatch.setenv("PRESERVE_FILE_ON_RELOAD", "false")
-    monkeypatch.setenv("MOLD_DASHBOARD_DATA_DIR", str(tmp_path))
-    shutil.copy(
-        Path(__file__).resolve().parents[1]
-        / "app"
-        / "manufacturing"
-        / "data"
-        / "mold"
-        / "phase0_control_limits.json",
-        tmp_path / "phase0_control_limits.json",
-    )
+    generated_dir = _configure_mold_generated_dir(monkeypatch, tmp_path)
+    _configure_mold_phase0_dir(monkeypatch, tmp_path / "phase0_data")
     write_upload_manifest(
-        data_dir=tmp_path,
+        data_dir=generated_dir,
         source_file="phase2_daily_stats.csv",
         upload_kind="phase2",
     )
     shutil.copy(
-        Path(__file__).resolve().parents[1]
-        / "app"
-        / "manufacturing"
-        / "data"
-        / "mold"
-        / "phase2_daily_stats.csv",
-        tmp_path / "phase2_daily_stats.csv",
+        MANUFACTURING_FIXTURES_DIR / "monthly" / "phase2_daily_stats_2026-04.csv",
+        generated_dir / "phase2_daily_stats.csv",
     )
     session_id = "test-session-id"
     register_upload_session(session_id)
@@ -726,15 +738,8 @@ def test_upload_manufacturing_dashboard_from_monthly_chunks(
 ) -> None:
     from app.manufacturing.infrastructure.mold_data_source import MoldDashboardProvider
 
-    mold_dir = (
-        Path(__file__).resolve().parents[1]
-        / "app"
-        / "manufacturing"
-        / "data"
-        / "mold"
-    )
-    shutil.copy(mold_dir / "phase0_control_limits.json", tmp_path / "phase0_control_limits.json")
-    monkeypatch.setenv("MOLD_DASHBOARD_DATA_DIR", str(tmp_path))
+    generated_dir = _configure_mold_generated_dir(monkeypatch, tmp_path)
+    _configure_mold_phase0_dir(monkeypatch, tmp_path / "phase0_data")
     monkeypatch.setattr(
         manufacturing_api,
         "_manufacturing_service",
@@ -753,14 +758,7 @@ def test_upload_manufacturing_dashboard_from_monthly_chunks(
         ),
     )
 
-    monthly_dir = (
-        Path(__file__).resolve().parents[1]
-        / "app"
-        / "manufacturing"
-        / "data"
-        / "mold"
-        / "monthly"
-    )
+    monthly_dir = MANUFACTURING_FIXTURES_DIR / "monthly"
     daily_path = monthly_dir / "phase2_daily_stats_2026-04.csv"
     anomalies_path = monthly_dir / "phase2_anomalies_2026-04.csv"
 
@@ -782,7 +780,7 @@ def test_upload_manufacturing_dashboard_from_monthly_chunks(
     data = response.json()
     assert data["dataStatus"] == "ready"
     assert data["sourceFile"] == daily_path.name
-    assert (tmp_path / "upload_manifest.json").is_file()
+    assert (generated_dir / "upload_manifest.json").is_file()
     assert data["range"]["endDate"].startswith("2026-04")
     assert "a_agent_flow_pressure" in data["xrCharts"]
     assert data["summary"]["businessRuleAlertCount"] > 0
@@ -958,15 +956,8 @@ def test_process_manufacturing_dashboard_from_raw_csv(
 ) -> None:
     from app.manufacturing.infrastructure.mold_data_source import MoldDashboardProvider
 
-    mold_dir = (
-        Path(__file__).resolve().parents[1]
-        / "app"
-        / "manufacturing"
-        / "data"
-        / "mold"
-    )
-    shutil.copy(mold_dir / "phase0_control_limits.json", tmp_path / "phase0_control_limits.json")
-    monkeypatch.setenv("MOLD_DASHBOARD_DATA_DIR", str(tmp_path))
+    generated_dir = _configure_mold_generated_dir(monkeypatch, tmp_path)
+    _configure_mold_phase0_dir(monkeypatch, tmp_path / "phase0_data")
     monkeypatch.setattr(
         manufacturing_api,
         "_manufacturing_service",
@@ -986,14 +977,7 @@ def test_process_manufacturing_dashboard_from_raw_csv(
         ),
     )
 
-    raw_path = (
-        Path(__file__).resolve().parents[1]
-        / "app"
-        / "manufacturing"
-        / "data"
-        / "mold"
-        / "テストデータ_202604.csv"
-    )
+    raw_path = MANUFACTURING_FIXTURES_DIR / "テストデータ_202604.csv"
     response = client.post(
         "/api/v1/manufacturing/dashboard/process",
         files={"file": (raw_path.name, raw_path.read_bytes(), "text/csv")},
@@ -1003,7 +987,7 @@ def test_process_manufacturing_dashboard_from_raw_csv(
     data = response.json()
     assert data["dataStatus"] == "ready"
     assert data["sourceFile"] == raw_path.name
-    assert (tmp_path / "upload_manifest.json").is_file()
+    assert (generated_dir / "upload_manifest.json").is_file()
     assert data["range"]["endDate"].startswith("2026-04")
     assert data["dailyCountChart"] is not None
     assert len(data["dailyCountChart"]["points"]) > 0

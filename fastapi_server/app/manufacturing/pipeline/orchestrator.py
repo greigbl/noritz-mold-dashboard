@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from app.manufacturing.infrastructure.mold_paths import get_phase0_control_limits_path
 from app.manufacturing.pipeline import config as pipeline_config
 from app.manufacturing.pipeline.phase1 import DataValidator, load_data
 from app.manufacturing.pipeline.phase2 import XRControlChart
@@ -115,7 +116,7 @@ def run_mold_pipeline(
     data_dir = data_dir.resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    limits_path = control_limits_path or (data_dir / "phase0_control_limits.json")
+    limits_path = control_limits_path or get_phase0_control_limits_path()
     if not limits_path.exists():
         raise FileNotFoundError(
             f"Phase 0 control limits not found at {limits_path}. "

@@ -250,6 +250,5 @@ Taskfile.gen.yaml
 #  .dr/state contains user-specific history and audit-trail while working with the CLI
 .datarobot/cli/state.yaml
 
-# Large local mold prediction artifacts (scored via DataRobot deployment at runtime)
-fastapi_server/app/manufacturing/data/mold/*_features_予測結果.csv
-fastapi_server/app/manufacturing/data/mold/upload_manifest.json
+# Generated mold dashboard artifacts (uploads, pipeline outputs)
+fastapi_server/app/manufacturing/data/generated/

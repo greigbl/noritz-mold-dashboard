@@ -12,6 +12,11 @@ async function typeComposerMessage(page: Page, text: string) {
   await expect(input).toHaveValue(text, { timeout: 60_000 });
 }
 
+async function openChat(page: Page) {
+  await page.goto(`${baseURL}/chat`, { waitUntil: 'networkidle' });
+  await expect(page.locator('[data-testid^="initial-assistant-message-"]')).toBeVisible();
+}
+
 test.describe('Main flow test', () => {
   let context: BrowserContext;
   let page: Page;
@@ -32,16 +37,14 @@ test.describe('Main flow test', () => {
   });
 
   test('start new chat', async () => {
-    await page.getByTestId('start-new-chat-btn').click();
-    await expect(page.locator('[data-testid^="initial-assistant-message-"]')).toBeVisible();
+    await openChat(page);
     await expect(page.getByText('assistant')).toBeVisible();
   });
 
   test('write a question to agent and wait until response fully done', async () => {
     test.setTimeout(TIMEOUT); // to wait long response from agent
 
-    await page.getByTestId('start-new-chat-btn').click();
-    await expect(page.locator('[data-testid^="initial-assistant-message-"]')).toBeVisible();
+    await openChat(page);
     await typeComposerMessage(page, 'tell me small story');
     await expect(page.getByTestId('send-message-btn')).toBeEnabled();
     await page.getByTestId('send-message-btn').click();
@@ -56,8 +59,7 @@ test.describe('Main flow test', () => {
   test('new thread is active when user switches chats', async () => {
     test.setTimeout(TIMEOUT); // to wait for chat to be deleted
     let contentCount = 0;
-    await page.getByTestId('start-new-chat-btn').click();
-    await expect(page.locator('[data-testid^="initial-assistant-message-"]')).toBeVisible();
+    await openChat(page);
     await typeComposerMessage(page, 'tell some fun fact');
     await expect(page.getByTestId('send-message-btn')).toBeEnabled();
     await page.getByTestId('send-message-btn').click();

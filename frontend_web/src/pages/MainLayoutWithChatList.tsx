@@ -73,7 +73,6 @@ export function MainLayout() {
         isLoading={isLoadingChats}
         chatId={chatId}
         chats={chats}
-        onChatCreate={addChatHandler}
         onChatSelect={setChatIdHandler}
         onChatDelete={deleteChatHandler}
         isDeletingChat={isDeletingChat}

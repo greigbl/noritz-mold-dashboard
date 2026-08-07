@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/sidebar';
 import { ViolationRulesReference } from '@/components/block/chat/violation-rules-reference';
 import { Skeleton } from '@/components/ui/skeleton';
-import { MessageSquare, MessageSquareText, MoreHorizontal, Plus, LoaderCircle } from 'lucide-react';
+import { MessageSquare, MessageSquareText, MoreHorizontal, LoaderCircle } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,7 +28,6 @@ import { useTranslation } from '@/lib/i18n';
 export interface ChatSidebarProps {
   isLoading: boolean;
   chatId: string;
-  onChatCreate: () => void;
   onChatSelect: (threadId: string) => void;
   onChatDelete: (threadId: string, callbackFn: () => void) => void;
   chats?: ChatListItem[];
@@ -57,7 +56,6 @@ export function ChatSidebar({
   chats,
   chatId,
   onChatSelect,
-  onChatCreate,
   onChatDelete,
   isDeletingChat,
   topMenuitem,
@@ -84,16 +82,6 @@ export function ChatSidebar({
       <SidebarContent>
         <SidebarGroup>
           {topMenuitem ? topMenuitem : null}
-          <SidebarMenuItem key="new-chat">
-            <SidebarMenuButton
-              disabled={isLoading}
-              onClick={onChatCreate}
-              testId="start-new-chat-btn"
-            >
-              <Plus />
-              <span>{t('Start new chat')}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
 
           <SidebarGroupLabel>{t('Chats')}</SidebarGroupLabel>
           <SidebarGroupContent>

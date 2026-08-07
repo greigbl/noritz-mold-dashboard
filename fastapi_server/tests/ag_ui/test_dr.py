@@ -22,6 +22,7 @@ import pytest
 from ag_ui.core import (
     BaseEvent,
     CustomEvent,
+    EventType,
     Message,
     RunErrorEvent,
     RunFinishedEvent,
@@ -30,6 +31,7 @@ from ag_ui.core import (
     TextMessageEndEvent,
     TextMessageStartEvent,
     ToolCallChunkEvent,
+    ToolCallEndEvent,
 )
 from openai.types.chat.chat_completion_chunk import (
     ChatCompletionChunk,
@@ -430,6 +432,111 @@ async def test_fallback_run_finished_when_agent_does_not_emit_one(
     assert len(run_finished) == 1
     assert run_finished[0].thread_id == "thread"
     assert run_finished[0].run_id == "run"
+
+
+async def test_drains_open_tool_call_before_embedded_run_finished(
+    set_completions: Callable[[list[ChatCompletionChunk]], None],
+    dr_agui_agent: DataRobotAGUIAgent,
+) -> None:
+    """TOOL_CALL_START without TOOL_CALL_END must be closed before RUN_FINISHED.
+
+    Mirrors the browser AGUIError:
+    Cannot send 'RUN_FINISHED' while tool calls are still active.
+    """
+    set_completions(
+        [
+            _make_event_chunk(
+                {
+                    "type": "TOOL_CALL_START",
+                    "toolCallId": "call_vqu8IiQGvSqwKhJR1c84oHYX",
+                    "toolCallName": "tavily_search_web",
+                }
+            ),
+            _make_event_chunk(
+                {
+                    "type": "TOOL_CALL_ARGS",
+                    "toolCallId": "call_vqu8IiQGvSqwKhJR1c84oHYX",
+                    "delta": '{"query":"mold pressure"}',
+                }
+            ),
+            _make_event_chunk(
+                {
+                    "type": "RUN_FINISHED",
+                    "threadId": "wrong-thread",
+                    "runId": "wrong-run",
+                }
+            ),
+        ]
+    )
+
+    result = await run(dr_agui_agent)
+    types = [getattr(event, "type", None) for event in result]
+
+    assert EventType.TOOL_CALL_START in types
+    assert EventType.TOOL_CALL_END in types
+    assert EventType.RUN_FINISHED in types
+    assert types.index(EventType.TOOL_CALL_END) < types.index(EventType.RUN_FINISHED)
+
+    tool_end = next(e for e in result if isinstance(e, ToolCallEndEvent))
+    assert tool_end.tool_call_id == "call_vqu8IiQGvSqwKhJR1c84oHYX"
+
+
+async def test_drains_open_tool_call_before_fallback_run_finished(
+    set_completions: Callable[[list[ChatCompletionChunk]], None],
+    dr_agui_agent: DataRobotAGUIAgent,
+) -> None:
+    """When the agent never emits RUN_FINISHED, drain open tools before the fallback."""
+    set_completions(
+        [
+            _make_event_chunk(
+                {
+                    "type": "TOOL_CALL_START",
+                    "toolCallId": "call_open_tool",
+                    "toolCallName": "search",
+                }
+            ),
+        ]
+    )
+
+    result = await run(dr_agui_agent)
+    types = [getattr(event, "type", None) for event in result]
+    assert types.index(EventType.TOOL_CALL_END) < types.index(EventType.RUN_FINISHED)
+    assert sum(1 for t in types if t == EventType.RUN_FINISHED) == 1
+
+
+async def test_does_not_duplicate_tool_call_end_when_already_closed(
+    set_completions: Callable[[list[ChatCompletionChunk]], None],
+    dr_agui_agent: DataRobotAGUIAgent,
+) -> None:
+    set_completions(
+        [
+            _make_event_chunk(
+                {
+                    "type": "TOOL_CALL_START",
+                    "toolCallId": "call_done",
+                    "toolCallName": "search",
+                }
+            ),
+            _make_event_chunk(
+                {
+                    "type": "TOOL_CALL_END",
+                    "toolCallId": "call_done",
+                }
+            ),
+            _make_event_chunk(
+                {
+                    "type": "RUN_FINISHED",
+                    "threadId": "thread",
+                    "runId": "run",
+                }
+            ),
+        ]
+    )
+
+    result = await run(dr_agui_agent)
+    tool_ends = [e for e in result if isinstance(e, ToolCallEndEvent)]
+    assert len(tool_ends) == 1
+    assert tool_ends[0].tool_call_id == "call_done"
 
 
 class TestPrepareChatCompletionsInput:

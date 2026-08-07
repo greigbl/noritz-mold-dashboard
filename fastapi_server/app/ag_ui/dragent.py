@@ -29,7 +29,12 @@ from ag_ui.core import (
 from pydantic import BaseModel
 
 from app.ag_ui.base import AGUIAgent
-from app.ag_ui.dr import _heartbeat_generator, _merge_async_generators
+from app.ag_ui.dr import (
+    _OpenLifecycleState,
+    _drain_before_run_finished,
+    _heartbeat_generator,
+    _merge_async_generators,
+)
 from app.config import Config
 
 _DEFAULT_STREAM_TIMEOUT_SECONDS = 600
@@ -94,6 +99,7 @@ class DRAgentAGUIAgent(AGUIAgent):
             logger.info("Sending request to DRAgent server's /generate/stream endpoint")
 
             events_yielded = False
+            lifecycle = _OpenLifecycleState()
             async with httpx.AsyncClient(
                 timeout=_DEFAULT_STREAM_TIMEOUT_SECONDS
             ) as client:
@@ -127,6 +133,7 @@ class DRAgentAGUIAgent(AGUIAgent):
                                 continue
                             logger.debug("Yielding event: %s", event.type)
                             events_yielded = True
+                            lifecycle.observe(event)
                             yield event
 
             logger.info("Stream has finished")
@@ -136,6 +143,10 @@ class DRAgentAGUIAgent(AGUIAgent):
                     "No events received from the DRAgent server. Please check if the server is running."
                 )
 
+            # Agent streams often omit TOOL_CALL_END / TEXT_MESSAGE_END; the
+            # browser AG-UI client rejects RUN_FINISHED while those are open.
+            for drained in _drain_before_run_finished(lifecycle):
+                yield drained
             yield RunFinishedEvent(thread_id=input.thread_id, run_id=input.run_id)
 
         except Exception as e:

@@ -360,6 +360,35 @@ class ManufacturingDashboardService:
             raise KeyError(alert_id)
         return alert
 
+    async def ensure_alert(
+        self,
+        alert_id: str,
+        *,
+        upload_session_id: str | None = None,
+    ) -> ManufacturingAlert:
+        """Return an alert by id, rebuilding the dashboard cache if needed.
+
+        Preserves an existing in-memory alert if a rebuild returns empty
+        (e.g. session cookie missing after a hot-reload race).
+        """
+        try:
+            return self.get_alert(alert_id)
+        except KeyError:
+            pass
+
+        previous_alerts = dict(self._alerts_by_id)
+        await self.build_dashboard(upload_session_id=upload_session_id)
+        try:
+            return self.get_alert(alert_id)
+        except KeyError:
+            cached = previous_alerts.get(alert_id)
+            if cached is not None:
+                # Rebuild returned empty (common after hot-reload when the
+                # upload session map is cleared). Keep the prior alert usable.
+                self._alerts_by_id = previous_alerts
+                return cached
+            raise
+
     async def refresh_alert_insight(self, alert_id: str) -> ManufacturingAlert:
         alert = self.get_alert(alert_id)
         refreshed = await self.insight_service.refresh_insight(

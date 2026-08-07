@@ -41,11 +41,18 @@ export function selectMessages(res: { data: APIChatWithMessages }): MessageRespo
   const uiMessages: MessageResponse[] = [];
 
   for (const historyMessage of res.data.messages) {
-    if (addResultToToolInvocation(historyMessage, uiMessages)) {
+    if (historyMessage.role === 'tool') {
+      // Attach results to prior tool widgets when present; never render raw tool
+      // payloads as their own chat bubbles.
+      addResultToToolInvocation(historyMessage, uiMessages);
       continue;
     }
 
     const parts = mapMessageToContentPart(historyMessage);
+    if (parts.length === 0) {
+      continue;
+    }
+
     const content = historyMessage.content ?? '';
     const uiMessage: MessageResponse = {
       id: historyMessage.id,
@@ -72,30 +79,14 @@ function getToolPart(m: MessageResponse, toolCallId: string): ToolInvocationUIPa
   }) as ToolInvocationUIPart | undefined;
 }
 
-function tryParseArgs(args: string) {
-  try {
-    return JSON.parse(args);
-  } catch (e) {
-    // eslint-disable-next-line no-console
-    console.debug('Error parsing arguments', e);
-    return args;
-  }
-}
-
 function mapMessageToContentPart(m: MessageHistoryResponse): ContentPart[] {
+  // Agent tool calls are internal — do not surface them as Tool Call widgets.
+  // Prefer any assistant text content on the same history row.
   if (m.toolCalls?.length) {
-    return m.toolCalls.map(
-      t =>
-        ({
-          type: 'tool-invocation',
-          toolInvocation: {
-            state: 'call',
-            toolCallId: t.id,
-            toolName: t.function?.name,
-            args: tryParseArgs(t.function?.arguments),
-          },
-        }) as ToolInvocationUIPart
-    );
+    if (m.content) {
+      return [{ type: 'text', text: m.content }];
+    }
+    return [];
   }
 
   if (m.content) {

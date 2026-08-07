@@ -185,14 +185,15 @@ async def get_manufacturing_alert(
     alert_id: str,
     request: Request,
 ) -> ManufacturingAlert:
-    service = get_manufacturing_service()
-    try:
-        return service.get_alert(alert_id)
-    except KeyError:
-        await service.build_dashboard(upload_session_id=_read_upload_session_id(request))
+    from urllib.parse import unquote
 
+    service = get_manufacturing_service()
+    resolved_id = unquote(alert_id)
     try:
-        return service.get_alert(alert_id)
+        return await service.ensure_alert(
+            resolved_id,
+            upload_session_id=_read_upload_session_id(request),
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Alert not found") from exc
 
@@ -202,13 +203,15 @@ async def refresh_manufacturing_alert_insight(
     alert_id: str,
     request: Request,
 ) -> ManufacturingAlert:
-    service = get_manufacturing_service()
-    try:
-        return await service.refresh_alert_insight(alert_id)
-    except KeyError:
-        await service.build_dashboard(upload_session_id=_read_upload_session_id(request))
+    from urllib.parse import unquote
 
+    service = get_manufacturing_service()
+    resolved_id = unquote(alert_id)
     try:
-        return await service.refresh_alert_insight(alert_id)
+        await service.ensure_alert(
+            resolved_id,
+            upload_session_id=_read_upload_session_id(request),
+        )
+        return await service.refresh_alert_insight(resolved_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Alert not found") from exc

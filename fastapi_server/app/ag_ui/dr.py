@@ -15,6 +15,7 @@
 import asyncio
 import logging
 import uuid
+from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Dict
 
 from ag_ui.core import (
@@ -26,10 +27,14 @@ from ag_ui.core import (
     RunErrorEvent,
     RunFinishedEvent,
     RunStartedEvent,
+    StepFinishedEvent,
+    StepStartedEvent,
     TextMessageContentEvent,
     TextMessageEndEvent,
     TextMessageStartEvent,
     ToolCallChunkEvent,
+    ToolCallEndEvent,
+    ToolCallStartEvent,
 )
 from openai import AsyncOpenAI, AsyncStream
 from openai.types.chat import ChatCompletionChunk
@@ -39,6 +44,57 @@ from app.ag_ui.base import AGUIAgent
 from app.config import Config
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _OpenLifecycleState:
+    """Track AG-UI lifecycle entities that must close before RUN_FINISHED."""
+
+    tool_call_ids: set[str] = field(default_factory=set)
+    text_message_ids: set[str] = field(default_factory=set)
+    step_names: set[str] = field(default_factory=set)
+
+    def observe(self, event: BaseEvent) -> None:
+        if isinstance(event, ToolCallStartEvent):
+            self.tool_call_ids.add(event.tool_call_id)
+        elif isinstance(event, ToolCallEndEvent):
+            self.tool_call_ids.discard(event.tool_call_id)
+        elif isinstance(event, TextMessageStartEvent):
+            self.text_message_ids.add(event.message_id)
+        elif isinstance(event, TextMessageEndEvent):
+            self.text_message_ids.discard(event.message_id)
+        elif isinstance(event, StepStartedEvent):
+            self.step_names.add(event.step_name)
+        elif isinstance(event, StepFinishedEvent):
+            self.step_names.discard(event.step_name)
+
+    def drain_events(self) -> list[BaseEvent]:
+        """Emit closing events for anything still open (AG-UI client verifyEvents)."""
+        drained: list[BaseEvent] = []
+        for step_name in sorted(self.step_names):
+            drained.append(StepFinishedEvent(step_name=step_name))
+        self.step_names.clear()
+
+        for message_id in sorted(self.text_message_ids):
+            drained.append(TextMessageEndEvent(message_id=message_id))
+        self.text_message_ids.clear()
+
+        for tool_call_id in sorted(self.tool_call_ids):
+            drained.append(ToolCallEndEvent(tool_call_id=tool_call_id))
+        self.tool_call_ids.clear()
+        return drained
+
+
+def _drain_before_run_finished(
+    lifecycle: _OpenLifecycleState,
+) -> list[BaseEvent]:
+    drained = lifecycle.drain_events()
+    if drained:
+        logger.warning(
+            "Draining %s open AG-UI lifecycle event(s) before RUN_FINISHED",
+            len(drained),
+        )
+    return drained
 
 
 async def _merge_async_generators(
@@ -170,6 +226,7 @@ class DataRobotAGUIAgent(AGUIAgent):
 
             text_message_started = False
             run_finished_emitted = False
+            lifecycle = _OpenLifecycleState()
 
             logger.debug("Sending request to agent's chat completion endpoint")
 
@@ -190,11 +247,14 @@ class DataRobotAGUIAgent(AGUIAgent):
                         event.run_id = input.run_id
                         if isinstance(event, RunFinishedEvent):
                             run_finished_emitted = True
+                            for drained in _drain_before_run_finished(lifecycle):
+                                yield drained
                     if event.type not in [
                         EventType.TEXT_MESSAGE_CONTENT,
                         EventType.THINKING_TEXT_MESSAGE_CONTENT,
                     ]:
                         logger.debug(f"Received event: {chunk.event}")
+                    lifecycle.observe(event)
                     yield event
                     continue
 
@@ -207,7 +267,9 @@ class DataRobotAGUIAgent(AGUIAgent):
 
                 if choice.delta.content:
                     if not text_message_started:
-                        yield TextMessageStartEvent(message_id=message_id)
+                        start_event = TextMessageStartEvent(message_id=message_id)
+                        lifecycle.observe(start_event)
+                        yield start_event
                         text_message_started = True
                     yield TextMessageContentEvent(
                         message_id=message_id, delta=choice.delta.content
@@ -232,9 +294,13 @@ class DataRobotAGUIAgent(AGUIAgent):
             logger.debug("Processed all chat completions")
 
             if text_message_started:
-                yield TextMessageEndEvent(message_id=message_id)
+                end_event = TextMessageEndEvent(message_id=message_id)
+                lifecycle.observe(end_event)
+                yield end_event
 
             if not run_finished_emitted:
+                for drained in _drain_before_run_finished(lifecycle):
+                    yield drained
                 yield RunFinishedEvent(thread_id=input.thread_id, run_id=input.run_id)
 
         except Exception as e:

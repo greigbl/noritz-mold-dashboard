@@ -345,16 +345,10 @@ export function useAgUiChat({
               threadId: chatId,
             }),
           });
-        } else {
-          addEvent({
-            type: 'message',
-            value: createToolMessageFromAgUiEvent(
-              params.event,
-              params.toolCallName,
-              params.toolCallArgs
-            ),
-          });
         }
+        // Server-side agent tools (e.g. search_agent) are not registered UI tools.
+        // Do not render a Tool Call widget for them — they never receive a client
+        // TOOL_CALL_RESULT, so the spinner would spin forever.
       },
       async onToolCallResultEvent(
         params: {

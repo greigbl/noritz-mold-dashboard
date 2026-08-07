@@ -20,6 +20,7 @@ import pytest
 from ag_ui.core import (
     BaseEvent,
     CustomEvent,
+    EventType,
     Message,
     RunErrorEvent,
     RunFinishedEvent,
@@ -233,6 +234,85 @@ async def test_run_with_tool_calls(
         TextMessageEndEvent(message_id=msg_id),
         RunFinishedEvent(thread_id="thread", run_id="run"),
     ]
+
+
+async def test_drains_open_tool_call_before_run_finished(
+    set_sse_responses: Callable[[List[MockSSE]], None],
+    dragent_agui_agent: DRAgentAGUIAgent,
+) -> None:
+    """TOOL_CALL_START without TOOL_CALL_END must be closed before RUN_FINISHED.
+
+    This is the live chat path (DRAgentAGUIAgent). Mirrors the browser AGUIError:
+    Cannot send 'RUN_FINISHED' while tool calls are still active.
+    """
+    tool_call_id = "call_DOvpcke63CnS4zCairaQbHqg"
+    set_sse_responses(
+        [
+            make_sse(
+                [
+                    ToolCallStartEvent(
+                        tool_call_id=tool_call_id,
+                        tool_call_name="search_agent",
+                    ),
+                    RunFinishedEvent(thread_id="", run_id=""),
+                ]
+            )
+        ]
+    )
+    result = await run(dragent_agui_agent)
+    types = [getattr(event, "type", None) for event in result]
+
+    assert EventType.TOOL_CALL_START in types
+    assert EventType.TOOL_CALL_END in types
+    assert EventType.RUN_FINISHED in types
+    assert types.index(EventType.TOOL_CALL_END) < types.index(EventType.RUN_FINISHED)
+
+    tool_end = next(e for e in result if isinstance(e, ToolCallEndEvent))
+    assert tool_end.tool_call_id == tool_call_id
+
+
+async def test_drains_open_text_message_before_run_finished(
+    set_sse_responses: Callable[[List[MockSSE]], None],
+    dragent_agui_agent: DRAgentAGUIAgent,
+) -> None:
+    msg_id = "msg-open"
+    set_sse_responses(
+        [
+            make_sse(
+                [
+                    TextMessageStartEvent(message_id=msg_id),
+                    TextMessageContentEvent(message_id=msg_id, delta="partial"),
+                ]
+            )
+        ]
+    )
+    result = await run(dragent_agui_agent)
+    types = [getattr(event, "type", None) for event in result]
+    assert types.index(EventType.TEXT_MESSAGE_END) < types.index(EventType.RUN_FINISHED)
+    assert sum(1 for t in types if t == EventType.TOOL_CALL_END) == 0
+
+
+async def test_does_not_duplicate_tool_call_end_when_already_closed(
+    set_sse_responses: Callable[[List[MockSSE]], None],
+    dragent_agui_agent: DRAgentAGUIAgent,
+) -> None:
+    tool_call_id = "call_done"
+    set_sse_responses(
+        [
+            make_sse(
+                [
+                    ToolCallStartEvent(
+                        tool_call_id=tool_call_id,
+                        tool_call_name="search_agent",
+                    ),
+                    ToolCallEndEvent(tool_call_id=tool_call_id),
+                ]
+            )
+        ]
+    )
+    result = await run(dragent_agui_agent)
+    assert sum(1 for e in result if isinstance(e, ToolCallEndEvent)) == 1
+    assert isinstance(result[-1], RunFinishedEvent)
 
 
 async def test_run_error(

@@ -1,21 +1,9 @@
 import { memo, useMemo, Component, type ReactNode, type ErrorInfo } from 'react';
-import {
-  User,
-  Bot,
-  Cog,
-  Hammer,
-  Wrench,
-  ChevronRight,
-  CheckCircle2,
-  Loader2,
-  AlertTriangle,
-  Brain,
-} from 'lucide-react';
+import { User, Bot, Cog, AlertTriangle, Brain } from 'lucide-react';
 import { CodeBlock } from '@/components/ui/code-block';
 import { cn } from '@/lib/utils';
 import type { ContentPart, ToolInvocationUIPart, ChatMessageEvent } from './types';
 import { useChatContext } from '@/components/block/chat/hooks/use-chat-context';
-import { Badge } from '@/components/ui/badge';
 import { Markdown } from '@/components/block/markdown';
 import { useTranslation } from '@/lib/i18n';
 
@@ -94,29 +82,13 @@ export function TextContentPart({ content }: { content: string }) {
 }
 
 export function ToolInvocationPart({ part }: { part: ToolInvocationUIPart }) {
-  const { t } = useTranslation();
   const { toolInvocation } = part;
   const { toolName } = toolInvocation;
   const ctx = useChatContext();
   const tool = ctx.getTool(toolName);
 
-  const hasResult = !!toolInvocation.result;
-  const result = useMemo(() => {
-    if (!hasResult) {
-      return '';
-    }
-
-    try {
-      if (toolInvocation.result) {
-        return JSON.stringify(JSON.parse(toolInvocation.result), null, '  ');
-      }
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.debug('Tool result is not a JSON', toolInvocation.result, e);
-    }
-    return toolInvocation.result || '';
-  }, [toolInvocation.result, hasResult]);
-
+  // Only registered client UI tools render. Agent/MCP tools (search_agent, etc.)
+  // must not show the default Tool Call card — they leave a forever-spinning loader.
   if (tool?.render) {
     return tool.render({ status: 'complete', args: toolInvocation.args });
   }
@@ -131,65 +103,7 @@ export function ToolInvocationPart({ part }: { part: ToolInvocationUIPart }) {
     });
   }
 
-  return (
-    <div
-      className={`
-        my-2 overflow-hidden rounded-lg border border-border bg-card/50
-        dark:bg-card/30
-      `}
-    >
-      {/* Header */}
-      <div
-        className={`
-          flex items-center gap-2 border-b border-border bg-muted/30 px-3 py-2
-          dark:bg-muted/20
-        `}
-      >
-        <Wrench className="size-4 text-muted-foreground" />
-        <span className="body-secondary">{t('Tool Call')}</span>
-        <Badge variant="default" className="code">
-          {toolInvocation.toolName}
-        </Badge>
-        {hasResult ? (
-          <CheckCircle2
-            className={`
-              ml-auto size-4 text-green-500
-              dark:text-green-400
-            `}
-          />
-        ) : (
-          <Loader2 className="ml-auto size-4 animate-spin text-muted-foreground" />
-        )}
-      </div>
-
-      {/* Arguments Section */}
-      {toolInvocation.args && (
-        <div
-          className={`
-            border-b border-border
-            last:border-b-0
-          `}
-        >
-          <div className="flex items-center gap-1.5 bg-muted/20 caption-01 px-3 py-1.5">
-            <ChevronRight className="size-3" />
-            {t('Arguments')}
-          </div>
-          <CodeBlock code={JSON.stringify(toolInvocation.args, null, '  ')} />
-        </div>
-      )}
-
-      {/* Result Section */}
-      {result && (
-        <div>
-          <div className="flex items-center gap-1.5 bg-muted/20 caption-01 px-3 py-1.5">
-            <ChevronRight className="size-3" />
-            {t('Result')}
-          </div>
-          <CodeBlock code={result} />
-        </div>
-      )}
-    </div>
-  );
+  return null;
 }
 
 function ChatMessageContent({
@@ -201,6 +115,15 @@ function ChatMessageContent({
   type = 'default',
 }: ChatMessageEvent) {
   const isUser = role === 'user';
+  const ctx = useChatContext();
+  const visibleParts = content.parts.filter(part => {
+    if (part.type !== 'tool-invocation') {
+      return true;
+    }
+    const tool = ctx.getTool(part.toolInvocation.toolName);
+    return !!(tool?.render || tool?.renderAndWait);
+  });
+
   const Icon = useMemo(() => {
     if (isUser) {
       return User;
@@ -208,12 +131,15 @@ function ChatMessageContent({
       return Cog;
     } else if (role === 'reasoning') {
       return Brain;
-    } else if (content.parts.some(({ type }) => type === 'tool-invocation')) {
-      return Hammer;
     } else {
       return Bot;
     }
-  }, [role, content.parts]);
+  }, [role, isUser]);
+
+  // Hide empty assistant shells that only contained hidden agent tool calls.
+  if (!isUser && visibleParts.length === 0) {
+    return null;
+  }
 
   return (
     <div
@@ -249,7 +175,7 @@ function ChatMessageContent({
             [line-break:anywhere]
           `}
         >
-          {content.parts.map((part, i) => (
+          {visibleParts.map((part, i) => (
             <UniversalContentPart key={i} part={part} />
           ))}
         </div>

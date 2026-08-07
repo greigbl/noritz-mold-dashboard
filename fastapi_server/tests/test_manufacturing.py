@@ -797,6 +797,17 @@ def test_upload_manufacturing_dashboard_from_monthly_chunks(
         and alert.get("evidence", {}).get("pattern") is not None
         for alert in data["alerts"]
     )
+    critical_anomaly_alerts = [
+        alert
+        for alert in data["alerts"]
+        if alert.get("alertType") == "prediction_ai"
+        and alert.get("severity") == "critical"
+    ]
+    assert critical_anomaly_alerts
+    assert critical_anomaly_alerts[0]["id"].startswith("anomaly-score-")
+    assert data["alerts"][0]["severity"] == "critical"
+    assert data["summary"]["predictionAlertCount"] == len(critical_anomaly_alerts)
+    assert data["summary"]["criticalAlertCount"] >= len(critical_anomaly_alerts)
 
 
 def test_parse_production_day_and_max_anomaly_scores(tmp_path: Path) -> None:
@@ -853,8 +864,24 @@ def test_parse_production_day_and_max_anomaly_scores(tmp_path: Path) -> None:
             scores_by_day_pattern=by_pattern,
             scores_by_day=scores.by_day,
         )
-        == 0.15
+        == 0.2
     )
+    assert mold.format_anomaly_score_display(0.0042041549) == "0.0042"
+    assert mold.format_anomaly_threshold_display(1.5e-6) == "0.0000015"
+    assert mold.format_anomaly_threshold_display(0.085) == "0.085"
+
+    anomaly_alerts = mold.build_anomaly_score_alerts(
+        scores=scores,
+        alert_start=date(2026, 4, 15),
+        latest=date(2026, 4, 16),
+    )
+    assert len(anomaly_alerts) == 1
+    assert anomaly_alerts[0].severity == "critical"
+    assert anomaly_alerts[0].anomaly_score == 0.2
+    assert anomaly_alerts[0].date == date(2026, 4, 15)
+    assert anomaly_alerts[0].evidence["exceedingPatterns"] == [1, 6]
+    assert "0.2000" in anomaly_alerts[0].description
+    assert "設定閾値" in anomaly_alerts[0].description
 
     chart = mold.load_daily_counts(
         tmp_path,

@@ -33,6 +33,7 @@ const businessAlert = {
   },
   insightStatus: 'ready',
   insight: '確認観点: 吐出パターン1の直近推移を確認してください。',
+  anomalyScore: 0.2,
 };
 
 const dashboardResponse = {

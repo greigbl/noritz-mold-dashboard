@@ -28,6 +28,7 @@ import {
 } from 'recharts';
 import { useManufacturingAlert, useManufacturingDashboard, useProcessManufacturingDashboard } from '@/api/manufacturing/hooks';
 import type {
+  AlertSeverity,
   DailyCountChart,
   ManufacturingAlert,
   ManufacturingMetric,
@@ -166,8 +167,20 @@ function formatDate(value: string) {
   return dateFormatter.format(new Date(`${value}T00:00:00`));
 }
 
+function formatAnomalyScoreDisplay(value: number): string {
+  return value.toFixed(4);
+}
+
+function formatAnomalyThresholdDisplay(value: number): string {
+  const text = value.toFixed(10).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
+  return text || '0';
+}
+
 function formatAlertValue(alert: ManufacturingAlert) {
   if (alert.alertType === 'prediction_ai') {
+    if (alert.ruleId === 'anomaly.score.threshold') {
+      return formatAnomalyScoreDisplay(alert.actual);
+    }
     return `${(alert.actual * 100).toFixed(1)}%`;
   }
   return alert.actual.toLocaleString('ja-JP', { maximumFractionDigits: 4 });
@@ -179,6 +192,78 @@ function formatViolationRules(alert: ManufacturingAlert) {
     return `違反ルール ${raw}`;
   }
   return alert.description;
+}
+
+function formatAlertSummary(alert: ManufacturingAlert, anomalyThreshold: number): string {
+  if (alert.alertType === 'prediction_ai' && alert.ruleId === 'anomaly.score.threshold') {
+    const score =
+      typeof alert.anomalyScore === 'number' && Number.isFinite(alert.anomalyScore)
+        ? alert.anomalyScore
+        : alert.actual;
+    return (
+      `日次最大異常スコア ${formatAnomalyScoreDisplay(score)} ` +
+      `が閾値 ${formatAnomalyThresholdDisplay(anomalyThreshold)} を超過しました`
+    );
+  }
+  return formatViolationRules(alert);
+}
+
+function isAlertVisibleForThreshold(
+  alert: ManufacturingAlert,
+  anomalyThreshold: number
+): boolean {
+  // 異常スコア cards must use the same UI threshold as the red daily bars.
+  if (alert.alertType === 'prediction_ai' && alert.ruleId === 'anomaly.score.threshold') {
+    return (
+      typeof alert.anomalyScore === 'number' &&
+      Number.isFinite(alert.anomalyScore) &&
+      alert.anomalyScore > anomalyThreshold
+    );
+  }
+  return true;
+}
+
+function resolveAlertSeverity(
+  alert: ManufacturingAlert,
+  anomalyThreshold: number
+): AlertSeverity {
+  // Only 異常スコア cards are critical; JIS business-rule alerts stay warning.
+  if (alert.alertType !== 'prediction_ai') {
+    return 'warning';
+  }
+  if (
+    typeof alert.anomalyScore === 'number' &&
+    Number.isFinite(alert.anomalyScore) &&
+    alert.anomalyScore > anomalyThreshold
+  ) {
+    return 'critical';
+  }
+  return 'warning';
+}
+
+function sortAlertsForDisplay(
+  alerts: ManufacturingAlert[],
+  anomalyThreshold: number
+): ManufacturingAlert[] {
+  return [...alerts].sort((left, right) => {
+    const leftCritical = resolveAlertSeverity(left, anomalyThreshold) === 'critical' ? 0 : 1;
+    const rightCritical = resolveAlertSeverity(right, anomalyThreshold) === 'critical' ? 0 : 1;
+    if (leftCritical !== rightCritical) {
+      return leftCritical - rightCritical;
+    }
+    const dateDelta = right.date.localeCompare(left.date);
+    if (dateDelta !== 0) {
+      return dateDelta;
+    }
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function alertListLabel(alert: ManufacturingAlert): string {
+  if (alert.alertType === 'prediction_ai') {
+    return `異常スコア ${formatDate(alert.date)}`;
+  }
+  return `${metricLabels[alert.metric]} ${formatDate(alert.date)}`;
 }
 
 function resolveRuleDescription(
@@ -569,14 +654,20 @@ function XrControlChart({
 function AlertList({
   alerts,
   selectedPattern,
+  anomalyThreshold,
 }: {
   alerts: ManufacturingAlert[];
   selectedPattern: number;
+  anomalyThreshold: number;
 }) {
-  const filtered = alerts.filter(alert => {
-    const pattern = alert.evidence?.pattern;
-    return pattern === undefined || pattern === selectedPattern;
-  });
+  const filtered = sortAlertsForDisplay(
+    alerts.filter(alert => {
+      const pattern = alert.evidence?.pattern;
+      const matchesPattern = pattern === undefined || pattern === selectedPattern;
+      return matchesPattern && isAlertVisibleForThreshold(alert, anomalyThreshold);
+    }),
+    anomalyThreshold
+  );
 
   if (!filtered.length) {
     return (
@@ -592,44 +683,54 @@ function AlertList({
 
   return (
     <div className="space-y-2">
-      {filtered.map(alert => (
-        <Link
-          key={alert.id}
-          to={`${PATHS.CHAT_EMPTY}?alertId=${encodeURIComponent(alert.id)}`}
-          className={cn(
-            'block rounded-md border p-3 no-underline transition-colors hover:bg-muted',
-            alert.severity === 'critical' && 'border-destructive-foreground',
-            alert.severity === 'warning' && 'border-warning'
-          )}
-        >
-          <div className="mb-2 flex items-start justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              {alert.alertType === 'prediction_ai' ? (
-                <BrainCircuit className="size-4 shrink-0 text-primary" />
-              ) : (
-                <ShieldAlert className="size-4 shrink-0 text-warning" />
-              )}
-              <span className="body truncate">
-                {metricLabels[alert.metric]} {formatDate(alert.date)}
-              </span>
+      {filtered.map(alert => {
+        const severity = resolveAlertSeverity(alert, anomalyThreshold);
+        return (
+          <Link
+            key={alert.id}
+            to={`${PATHS.CHAT_EMPTY}?alertId=${encodeURIComponent(alert.id)}`}
+            className={cn(
+              'block rounded-md border p-3 no-underline transition-colors hover:bg-muted',
+              severity === 'critical' && 'border-destructive-foreground',
+              severity === 'warning' && 'border-warning'
+            )}
+          >
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                {alert.alertType === 'prediction_ai' ? (
+                  <BrainCircuit className="size-4 shrink-0 text-primary" />
+                ) : (
+                  <ShieldAlert className="size-4 shrink-0 text-warning" />
+                )}
+                <span className="body truncate">{alertListLabel(alert)}</span>
+              </div>
+              <Badge
+                variant={severity === 'critical' ? 'destructive' : 'warning'}
+                className="rounded-sm"
+              >
+                {severity}
+              </Badge>
             </div>
-            <Badge
-              variant={alert.severity === 'critical' ? 'destructive' : 'warning'}
-              className="rounded-sm"
-            >
-              {alert.severity}
-            </Badge>
-          </div>
-          <div className="caption-01 truncate text-muted-foreground">
-            {formatViolationRules(alert)} / 実績 {formatAlertValue(alert)}
-          </div>
-        </Link>
-      ))}
+            <div className="caption-01 truncate text-muted-foreground">
+              {formatAlertSummary(alert, anomalyThreshold)}
+              {alert.alertType === 'prediction_ai' && alert.ruleId === 'anomaly.score.threshold'
+                ? ''
+                : ` / 実績 ${formatAlertValue(alert)}`}
+            </div>
+          </Link>
+        );
+      })}
     </div>
   );
 }
 
-function AlertDetail({ alertId }: { alertId: string }) {
+function AlertDetail({
+  alertId,
+  anomalyThreshold,
+}: {
+  alertId: string;
+  anomalyThreshold: number;
+}) {
   const { data: alert, isLoading, isError } = useManufacturingAlert(alertId);
 
   if (isLoading) {
@@ -649,6 +750,8 @@ function AlertDetail({ alertId }: { alertId: string }) {
       </Alert>
     );
   }
+
+  const severity = resolveAlertSeverity(alert, anomalyThreshold);
 
   return (
     <Card className="rounded-md">
@@ -674,11 +777,11 @@ function AlertDetail({ alertId }: { alertId: string }) {
           </div>
         </div>
         <Alert
-          variant={alert.severity === 'critical' ? 'destructive' : 'warning'}
+          variant={severity === 'critical' ? 'destructive' : 'warning'}
           className="rounded-md"
         >
           <AlertTriangle />
-          <AlertTitle>{formatViolationRules(alert)}</AlertTitle>
+          <AlertTitle>{formatAlertSummary(alert, anomalyThreshold)}</AlertTitle>
           <AlertDescription>
             実績 {formatAlertValue(alert)}
             {alert.controlLimit !== null
@@ -792,10 +895,18 @@ export function DashboardPage() {
     );
   }
 
-  const filteredAlertCount = (dashboard.alerts ?? []).filter(alert => {
-    const pattern = alert.evidence?.pattern;
-    return pattern === undefined || pattern === selectedPattern;
-  }).length;
+  const filteredAlerts = sortAlertsForDisplay(
+    (dashboard.alerts ?? []).filter(alert => {
+      const pattern = alert.evidence?.pattern;
+      const matchesPattern = pattern === undefined || pattern === selectedPattern;
+      return matchesPattern && isAlertVisibleForThreshold(alert, anomalyThreshold);
+    }),
+    anomalyThreshold
+  );
+  const filteredAlertCount = filteredAlerts.length;
+  const criticalAlertCount = filteredAlerts.filter(
+    alert => resolveAlertSeverity(alert, anomalyThreshold) === 'critical'
+  ).length;
 
   const isEmptyDashboard = dashboard.dataStatus === 'empty';
 
@@ -866,9 +977,9 @@ export function DashboardPage() {
                 <Badge type="outline" className="rounded-sm">
                   アラート判定 直近7日
                 </Badge>
-                {dashboard.summary.criticalAlertCount > 0 ? (
+                {criticalAlertCount > 0 ? (
                   <Badge variant="destructive" className="rounded-sm">
-                    critical {dashboard.summary.criticalAlertCount}
+                    critical {criticalAlertCount}
                   </Badge>
                 ) : null}
               </div>
@@ -1091,7 +1202,7 @@ export function DashboardPage() {
 
             {alertId ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
-                <AlertDetail alertId={alertId} />
+                <AlertDetail alertId={alertId} anomalyThreshold={anomalyThreshold} />
               </div>
             ) : (
               <UploadRevealSection
@@ -1106,6 +1217,7 @@ export function DashboardPage() {
                     <AlertList
                       alerts={dashboard.alerts ?? []}
                       selectedPattern={selectedPattern}
+                      anomalyThreshold={anomalyThreshold}
                     />
                   </CardContent>
                 </Card>

@@ -58,8 +58,11 @@ from app.manufacturing.infrastructure.mold_paths import (
 )
 DETECTION_DAYS = CONFIG_DETECTION_DAYS
 BUSINESS_RULE_ID = "jis.xr.violation_rules"
+ANOMALY_SCORE_RULE_ID = "anomaly.score.threshold"
 RULE_VERSION = "1.0.0"
 EXCEL_SERIAL_EPOCH = date(1899, 12, 30)
+# Placeholder metric for day-level anomaly alerts (list UI labels them as 異常スコア).
+ANOMALY_ALERT_METRIC: MetricName = "a_agent_flow_pressure"
 
 # Pipeline Japanese column -> API metric key
 TARGET_COLUMN_TO_METRIC: dict[str, MetricName] = {
@@ -213,6 +216,17 @@ def parse_production_day(raw: str) -> date | None:
         return None
 
 
+def format_anomaly_score_display(value: float) -> str:
+    """Format day-max anomaly score to 4 decimal places."""
+    return f"{value:.4f}"
+
+
+def format_anomaly_threshold_display(value: float) -> str:
+    """Format threshold as a plain decimal (never scientific notation)."""
+    text = f"{value:.10f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
 def resolve_alert_anomaly_score(
     *,
     day: date,
@@ -220,12 +234,92 @@ def resolve_alert_anomaly_score(
     scores_by_day_pattern: dict[tuple[date, int], float],
     scores_by_day: dict[date, float],
 ) -> float | None:
-    """Pick the anomaly score for a selected alert from prediction aggregates."""
-    if pattern is not None:
-        score = scores_by_day_pattern.get((day, pattern))
-        if score is not None:
-            return score
+    """Return the day-max anomaly score used for daily bar highlighting.
+
+    Pattern-specific scores remain available via ``scores_by_day_pattern`` for
+    evidence, but severity must track the same day-max value as the red bars.
+    """
+    del pattern, scores_by_day_pattern  # kept in signature for call-site compatibility
     return scores_by_day.get(day)
+
+
+def sort_manufacturing_alerts(
+    alerts: list[ManufacturingAlert],
+) -> list[ManufacturingAlert]:
+    """Critical alerts first, then newest date, then stable id."""
+    return sorted(
+        alerts,
+        key=lambda alert: (
+            0 if alert.severity == "critical" else 1,
+            -alert.date.toordinal(),
+            alert.alert_type != "prediction_ai",
+            alert.metric,
+            alert.id,
+        ),
+    )
+
+
+def build_anomaly_score_alerts(
+    *,
+    scores: AnomalyScoreAggregates,
+    alert_start: date,
+    latest: date,
+) -> list[ManufacturingAlert]:
+    """Emit critical alerts for days whose max anomaly score exceeds threshold.
+
+    These are day-level (no pattern filter) so they stay visible whenever the
+    matching daily bar is red, regardless of selected 吐出パターン.
+    """
+    if scores.status not in ("available", "local"):
+        return []
+
+    threshold = scores.threshold
+    alerts: list[ManufacturingAlert] = []
+    for day, score in sorted(scores.by_day.items(), reverse=True):
+        if day < alert_start or day > latest:
+            continue
+        if score <= threshold:
+            continue
+
+        exceeding_patterns = sorted(
+            pattern
+            for (score_day, pattern), pattern_score in scores.by_day_pattern.items()
+            if score_day == day and pattern_score > threshold
+        )
+        pattern_label = (
+            "、".join(str(pattern) for pattern in exceeding_patterns)
+            if exceeding_patterns
+            else "—"
+        )
+        score_label = format_anomaly_score_display(score)
+        alerts.append(
+            ManufacturingAlert(
+                id=f"anomaly-score-{day.isoformat()}",
+                dedup_key=f"anomaly_score:day:{day.isoformat()}",
+                alert_type="prediction_ai",
+                severity="critical",
+                status="firing",
+                source="anomaly_prediction",
+                metric=ANOMALY_ALERT_METRIC,
+                date=day,
+                title=f"異常スコアが閾値を超過（{day.isoformat()}）",
+                description=(
+                    f"日次最大異常スコア {score_label} が設定閾値を超過しました"
+                    f"（超過パターン: {pattern_label}）。"
+                ),
+                actual=float(score),
+                threshold=float(threshold),
+                rule_id=ANOMALY_SCORE_RULE_ID,
+                rule_version=RULE_VERSION,
+                evidence={
+                    "maxAnomalyScore": float(score),
+                    "threshold": float(threshold),
+                    "exceedingPatterns": exceeding_patterns,
+                },
+                anomaly_score=float(score),
+            )
+        )
+    return alerts
 
 
 def classify_phase2_csv_rows(
@@ -369,14 +463,18 @@ def build_xr_charts_and_alerts(
                         f"ルール{rule}:{JIS_RULES_DESCRIPTION.get(rule, '')}"
                         for rule in violation_rules
                     )
+                    anomaly_score = resolve_alert_anomaly_score(
+                        day=day,
+                        pattern=pattern,
+                        scores_by_day_pattern=scores_by_day_pattern,
+                        scores_by_day=scores_by_day,
+                    )
                     alerts.append(
                         ManufacturingAlert(
                             id=alert_id,
                             dedup_key=f"business_rule:jis_xr:{metric}:{pattern}:{day.isoformat()}",
                             alert_type="business_rule",
-                            severity="warning"
-                            if 1 not in violation_rules
-                            else "critical",
+                            severity="warning",
                             status="firing",
                             source="phase2_xr",
                             metric=metric,
@@ -408,12 +506,7 @@ def build_xr_charts_and_alerts(
                                 "cl": float(anomaly["cl"]),
                                 "targetColumn": target_column,
                             },
-                            anomaly_score=resolve_alert_anomaly_score(
-                                day=day,
-                                pattern=pattern,
-                                scores_by_day_pattern=scores_by_day_pattern,
-                                scores_by_day=scores_by_day,
-                            ),
+                            anomaly_score=anomaly_score,
                         )
                     )
 
@@ -443,8 +536,14 @@ def build_xr_charts_and_alerts(
         if charts_for_metric:
             xr_charts[metric] = charts_for_metric
 
-    alerts.sort(key=lambda alert: (alert.date, alert.metric, alert.id), reverse=True)
-    return xr_charts, alerts, sorted(patterns), plot_start, latest
+    alerts.extend(
+        build_anomaly_score_alerts(
+            scores=scores,
+            alert_start=alert_start,
+            latest=latest,
+        )
+    )
+    return xr_charts, sort_manufacturing_alerts(alerts), sorted(patterns), plot_start, latest
 
 
 def build_stub_series(
@@ -633,6 +732,9 @@ class MoldDashboardProvider:
         business_rule_alert_count = sum(
             1 for alert in alerts if alert.alert_type == "business_rule"
         )
+        prediction_alert_count = sum(
+            1 for alert in alerts if alert.alert_type == "prediction_ai"
+        )
         from app.manufacturing.infrastructure.mold_session import is_preserve_file_on_reload
 
         return ManufacturingDashboard(
@@ -652,7 +754,7 @@ class MoldDashboardProvider:
                 bleedout_count=0,
                 bleedout_rate=0.0,
                 alert_count=len(alerts),
-                prediction_alert_count=0,
+                prediction_alert_count=prediction_alert_count,
                 business_rule_alert_count=business_rule_alert_count,
                 critical_alert_count=sum(
                     1 for alert in alerts if alert.severity == "critical"

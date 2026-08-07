@@ -48,6 +48,23 @@ import {
 
 export type UseAgUiChatParams = ChatProviderInput;
 
+export function shouldShowAgentWorkingIndicator({
+  isAgentRunning,
+  isThinking,
+  message,
+  reasoningMessage,
+}: {
+  isAgentRunning: boolean;
+  isThinking: boolean;
+  message: MessageResponse | null;
+  reasoningMessage: MessageResponse | null;
+}): boolean {
+  if (message || reasoningMessage) {
+    return false;
+  }
+  return isAgentRunning || isThinking;
+}
+
 export function useAgUiChat({
   chatId,
   isNewChat,
@@ -541,13 +558,25 @@ export function useAgUiChat({
       result.push(messageToStateEvent(reasoningMessage));
     }
 
-    if (isThinking) {
+    const activeStep = events.find(
+      event => event.type === 'step' && event.value.isRunning
+    );
+    const showWorkingIndicator = shouldShowAgentWorkingIndicator({
+      isAgentRunning,
+      isThinking,
+      message,
+      reasoningMessage,
+    });
+
+    if (showWorkingIndicator) {
       result.push({
         type: 'thinking',
         value: {
           id: 'thinking',
           threadId: chatId,
           createdAt: new Date(),
+          stepName: activeStep?.type === 'step' ? activeStep.value.name : undefined,
+          isAgentWorking: isAgentRunning,
         },
       });
     }
@@ -560,6 +589,7 @@ export function useAgUiChat({
     reasoningMessage,
     isLoadingHistory,
     isThinking,
+    isAgentRunning,
     initialMessages,
   ]);
 

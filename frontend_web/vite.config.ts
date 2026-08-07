@@ -5,11 +5,18 @@ import tailwindcss from '@tailwindcss/vite';
 import { loadEnv } from 'vite';
 
 import { VITE_DEFAULT_PORT, VITE_STATIC_DEFAULT_PORT } from './src/constants/dev';
+import { DEFAULT_APP_LANGUAGE } from './src/lib/i18n/language';
 
 const projectRoot = path.resolve(__dirname, '..');
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, projectRoot, '');
+    const appLanguage =
+        env.APP_LANGUAGE ||
+        env.VITE_APP_LANGUAGE ||
+        process.env.APP_LANGUAGE ||
+        process.env.VITE_APP_LANGUAGE ||
+        DEFAULT_APP_LANGUAGE;
     let base: string = '';
     // 1. if NOTEBOOK_ID is set, use /notebook-sessions/${NOTEBOOK_ID}/ports/5173/ for dev server
     if (process.env.NOTEBOOK_ID && process.env.NODE_ENV === 'development') {
@@ -25,6 +32,9 @@ export default defineConfig(({ mode }) => {
     // https://vite.dev/config/
     return {
         envDir: projectRoot,
+        define: {
+            'import.meta.env.VITE_APP_LANGUAGE': JSON.stringify(appLanguage),
+        },
         plugins: [
             react(),
             tailwindcss(),

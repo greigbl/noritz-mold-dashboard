@@ -41,7 +41,13 @@ export function ChatMessages({ children, messages, isLoading }: ChatMessageProps
               return <StepEvent key={m.value.id} {...m.value} />;
             }
             if (isThinkingEvent(m)) {
-              return <ThinkingEvent key={m.type} />;
+              return (
+                <ThinkingEvent
+                  key={m.type}
+                  stepName={m.value.stepName}
+                  isAgentWorking={m.value.isAgentWorking}
+                />
+              );
             }
           }))
       )}

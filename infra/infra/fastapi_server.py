@@ -39,6 +39,7 @@ MANUFACTURING_PREDICTION_DEPLOYMENT_ID: Final[str] = (
 DATAROBOT_ENDPOINT: Final[str] = "DATAROBOT_ENDPOINT"
 DATAROBOT_API_TOKEN: Final[str] = "DATAROBOT_API_TOKEN"
 DATAROBOT_API_KEY: Final[str] = "DATAROBOT_API_KEY"
+PRESERVE_FILE_ON_RELOAD: Final[str] = "PRESERVE_FILE_ON_RELOAD"
 session_secret_key = os.environ.get(SESSION_SECRET_KEY)
 
 required_key_scope_level: str = "admin"
@@ -57,6 +58,15 @@ def get_manufacturing_app_runtime_parameters() -> list[
                 key=MANUFACTURING_PREDICTION_DEPLOYMENT_ID,
                 type="string",
                 value=deployment_id,
+            )
+        )
+
+    if preserve := os.getenv(PRESERVE_FILE_ON_RELOAD):
+        runtime_parameters.append(
+            pulumi_datarobot.ApplicationSourceRuntimeParameterValueArgs(
+                key="PRESERVE_FILE_ON_RELOAD",
+                type="string",
+                value=preserve,
             )
         )
 

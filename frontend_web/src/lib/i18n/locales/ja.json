@@ -16,5 +16,8 @@
   "Failed to connect to OAuth provider": "",
   "Please try again or contact support if the problem persists.": "",
   "Failed to load connected sources.": "",
-  "No sources available.": ""
+  "No sources available.": "",
+  "Thinking": "考え中",
+  "Agent is running": "考え中",
+  "Searching and analyzing. This may take a minute.": "分析と検索を実行中です。数分かかる場合がありますので、少々お待ちください。"
 }

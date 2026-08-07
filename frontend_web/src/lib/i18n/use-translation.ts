@@ -9,6 +9,8 @@ type ExtendedTOptions = TOptions & {
   plural?: string;
 };
 
+import { resolveAppLanguage } from './language';
+
 // Import translation files
 import esTranslations from './locales/es-419.json';
 import frTranslations from './locales/fr.json';
@@ -70,8 +72,8 @@ export const saveLanguage = (language: string) => {
 
 i18n.use(initReactI18next).init({
   resources,
-  lng: getSavedLanguage() || 'en',
-  fallbackLng: 'en',
+  lng: resolveAppLanguage(import.meta.env.VITE_APP_LANGUAGE, getSavedLanguage()),
+  fallbackLng: 'ja',
   interpolation: {
     escapeValue: false,
   },

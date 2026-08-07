@@ -253,6 +253,10 @@ export type ChatThinkingEvent = {
   id: string;
   threadId: string;
   createdAt: Date;
+  /** Active workflow step name, when the agent reports one. */
+  stepName?: string;
+  /** True while the agent run is in progress but no assistant text is streaming yet. */
+  isAgentWorking?: boolean;
 };
 
 // --- ChatStateEvent discriminated union ---

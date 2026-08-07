@@ -90,3 +90,11 @@ declare module '*.bmp' {
   const src: string;
   export default src;
 }
+
+interface ImportMetaEnv {
+  readonly VITE_APP_LANGUAGE?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}

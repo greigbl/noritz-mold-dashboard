@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import hashlib
+import os
+import shlex
 from pathlib import Path
 
 import pulumi
@@ -20,6 +22,9 @@ import pulumi_command as command
 from datarobot_pulumi_utils.pulumi.stack import PROJECT_NAME
 
 project_dir = Path(__file__).parent.parent.parent
+
+APP_LANGUAGE_ENV = "APP_LANGUAGE"
+DEFAULT_APP_LANGUAGE = "ja"
 
 FRONTEND_SOURCE_GLOBS = [
     "src/**/*",
@@ -51,6 +56,10 @@ def _hash_frontend_sources(frontend_dir: Path) -> str:
     return h.hexdigest()
 
 
+def resolve_app_language() -> str:
+    return os.getenv(APP_LANGUAGE_ENV, DEFAULT_APP_LANGUAGE).strip() or DEFAULT_APP_LANGUAGE
+
+
 def build_frontend() -> command.local.Command:
     """
     Build the frontend application before deploying infrastructure.
@@ -58,11 +67,17 @@ def build_frontend() -> command.local.Command:
     """
     frontend_dir = project_dir / "frontend_web"
     source_hash = _hash_frontend_sources(frontend_dir)
+    app_language = resolve_app_language()
 
     build_react_app = command.local.Command(
         f"Agentic Application Starter [{PROJECT_NAME}] Build Frontend",
-        create=f"cd {frontend_dir} && npm install && npm run build",
-        triggers=[source_hash],
+        create=(
+            f"cd {frontend_dir} && npm install && "
+            f"APP_LANGUAGE={shlex.quote(app_language)} "
+            f"VITE_APP_LANGUAGE={shlex.quote(app_language)} "
+            f"npm run build"
+        ),
+        triggers=[source_hash, app_language],
         opts=pulumi.ResourceOptions(depends_on=[]),
     )
 
@@ -71,4 +86,6 @@ def build_frontend() -> command.local.Command:
 
 frontend_web = build_frontend()
 
-__all__ = ["frontend_web"]
+pulumi.export("APP_LANGUAGE", resolve_app_language())
+
+__all__ = ["frontend_web", "resolve_app_language", "APP_LANGUAGE_ENV"]
